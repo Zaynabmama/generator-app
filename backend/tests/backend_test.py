@@ -487,6 +487,151 @@ class TestMonthlyFeeAndPayment:
         assert r.status_code == 404, r.text
 
 
+# ==================== Iteration 5: GET /api/readings/latest/{customer_id} ====================
+
+class TestLatestReading:
+    """Verify GET /api/readings/latest/{customer_id} used by frontend to
+    auto-populate previous_reading when creating an invoice."""
+
+    def _create_customer(self, api_client):
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        payload = {
+            "name": f"TEST_{uuid.uuid4().hex[:6]}",
+            "phone": "07722222222",
+            "address": "TEST latest",
+            "area": "المسعودية",
+            "meter_number": f"TEST-{uuid.uuid4().hex[:6]}",
+            "generator_id": gen_id,
+            "previous_balance": 0.0,
+        }
+        r = api_client.post(f"{API}/customers", json=payload)
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    def _create_reading(self, api_client, cust_id, prev, curr, date_iso):
+        r = api_client.post(f"{API}/readings", json={
+            "customer_id": cust_id,
+            "previous_reading": prev,
+            "current_reading": curr,
+            "reading_date": date_iso,
+        })
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def test_latest_reading_no_readings_returns_has_reading_false(self, api_client):
+        cust_id = self._create_customer(api_client)
+        try:
+            r = api_client.get(f"{API}/readings/latest/{cust_id}")
+            assert r.status_code == 200, r.text
+            data = r.json()
+            assert data["has_reading"] is False
+            assert data["current_reading"] == 0
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    def test_latest_reading_returns_most_recent(self, api_client):
+        """Create reading1(current=100, older) then reading2(current=200, newer).
+        Latest endpoint MUST return current=200 regardless of insertion order."""
+        cust_id = self._create_customer(api_client)
+        try:
+            older = datetime(2026, 1, 1, 10, 0, 0).isoformat()
+            newer = datetime(2026, 1, 15, 10, 0, 0).isoformat()
+
+            # Insert older first
+            r1 = self._create_reading(api_client, cust_id, 0.0, 100.0, older)
+            # Then newer
+            r2 = self._create_reading(api_client, cust_id, 100.0, 200.0, newer)
+            assert r1["current_reading"] == 100.0
+            assert r2["current_reading"] == 200.0
+
+            resp = api_client.get(f"{API}/readings/latest/{cust_id}")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["has_reading"] is True
+            assert data["current_reading"] == 200.0, f"Expected latest=200, got {data}"
+            assert "reading_date" in data
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    def test_latest_reading_returns_most_recent_reverse_insert(self, api_client):
+        """Insert newer FIRST, then older. Latest must still return the newer (200)
+        based on reading_date, not created_at."""
+        cust_id = self._create_customer(api_client)
+        try:
+            older = datetime(2026, 1, 1, 10, 0, 0).isoformat()
+            newer = datetime(2026, 1, 20, 10, 0, 0).isoformat()
+
+            # Insert newer first, older second
+            self._create_reading(api_client, cust_id, 100.0, 200.0, newer)
+            self._create_reading(api_client, cust_id, 0.0, 100.0, older)
+
+            resp = api_client.get(f"{API}/readings/latest/{cust_id}")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["has_reading"] is True
+            assert data["current_reading"] == 200.0, f"Sort by reading_date desc failed: {data}"
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    def test_latest_reading_full_flow_100_then_200(self, api_client):
+        """PRD scenario: create customer -> reading1(current=100) -> reading2(current=200)
+        -> GET latest should return current=200."""
+        cust_id = self._create_customer(api_client)
+        try:
+            t1 = datetime(2026, 1, 5, 8, 0, 0).isoformat()
+            t2 = datetime(2026, 1, 10, 8, 0, 0).isoformat()
+            self._create_reading(api_client, cust_id, 0.0, 100.0, t1)
+            self._create_reading(api_client, cust_id, 100.0, 200.0, t2)
+
+            resp = api_client.get(f"{API}/readings/latest/{cust_id}")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["has_reading"] is True
+            assert data["current_reading"] == 200.0
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    def test_latest_reading_invalid_customer_id_string(self, api_client):
+        """Non-existent (but arbitrary) customer_id: endpoint should not 500;
+        returns has_reading:false per spec."""
+        r = api_client.get(f"{API}/readings/latest/nonexistent-customer-xyz")
+        assert r.status_code in (200, 404), r.text
+        if r.status_code == 200:
+            data = r.json()
+            assert data["has_reading"] is False
+            assert data["current_reading"] == 0
+
+    def test_latest_reading_wellformed_but_missing_objectid(self, api_client):
+        """Well-formed ObjectId that does not exist as a customer."""
+        fake = "507f1f77bcf86cd799439099"
+        r = api_client.get(f"{API}/readings/latest/{fake}")
+        assert r.status_code in (200, 404), r.text
+        if r.status_code == 200:
+            data = r.json()
+            assert data["has_reading"] is False
+            assert data["current_reading"] == 0
+
+    def test_latest_reading_route_not_shadowed_by_reading_id_route(self, api_client):
+        """Route ordering guard: /readings/latest/{cid} must not be captured by
+        /readings/{reading_id}. If shadowed, we'd get 404 'القراءة غير موجودة'
+        or an ObjectId parse 500."""
+        cust_id = self._create_customer(api_client)
+        try:
+            self._create_reading(
+                api_client, cust_id, 0.0, 50.0,
+                datetime(2026, 1, 12, 9, 0, 0).isoformat()
+            )
+            r = api_client.get(f"{API}/readings/latest/{cust_id}")
+            assert r.status_code == 200, f"Route shadowed? {r.status_code} {r.text}"
+            data = r.json()
+            assert "has_reading" in data
+            assert data["has_reading"] is True
+            assert data["current_reading"] == 50.0
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+
 # ==================== Existing endpoints regression ====================
 
 class TestEndpointsHealth:

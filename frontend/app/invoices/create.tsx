@@ -51,9 +51,29 @@ export default function CreateInvoiceScreen() {
     }
   };
 
-  const handleCustomerSelect = (customerId: string) => {
+  const handleCustomerSelect = async (customerId: string) => {
     const customer = customers.find((c) => c.id === customerId);
     setSelectedCustomer(customer);
+    
+    // Fetch latest reading to auto-populate previous_reading
+    if (customerId && customer) {
+      try {
+        const response = await readingsAPI.getLatest(customerId);
+        if (response.data.has_reading) {
+          setReadingData((prev) => ({
+            ...prev,
+            previous_reading: response.data.current_reading.toString(),
+          }));
+        } else {
+          setReadingData((prev) => ({
+            ...prev,
+            previous_reading: '',
+          }));
+        }
+      } catch (error) {
+        console.error('Error fetching latest reading:', error);
+      }
+    }
   };
 
   const calculateInvoice = () => {
@@ -189,6 +209,14 @@ export default function CreateInvoiceScreen() {
       <Card.Content>
         <Text style={styles.sectionTitle}>قراءة العداد</Text>
 
+        {readingData.previous_reading && (
+          <View style={styles.infoBanner}>
+            <Text style={styles.infoBannerText}>
+              ✓ تم تحميل القراءة السابقة تلقائياً من آخر فاتورة
+            </Text>
+          </View>
+        )}
+
         <TextInput
           label="القراءة السابقة *"
           value={readingData.previous_reading}
@@ -198,6 +226,11 @@ export default function CreateInvoiceScreen() {
           mode="outlined"
           keyboardType="numeric"
           style={styles.input}
+          right={
+            readingData.previous_reading ? (
+              <TextInput.Icon icon="check-circle" color="#4CAF50" />
+            ) : undefined
+          }
         />
 
         <TextInput
@@ -472,6 +505,19 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 16,
     alignItems: 'center',
+  },
+  infoBanner: {
+    padding: 12,
+    backgroundColor: 'rgba(76, 175, 80, 0.15)',
+    borderLeftWidth: 4,
+    borderLeftColor: '#4CAF50',
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  infoBannerText: {
+    fontSize: 14,
+    color: '#4CAF50',
+    textAlign: 'center',
   },
   consumptionLabel: {
     fontSize: 14,

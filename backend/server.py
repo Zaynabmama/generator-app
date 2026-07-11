@@ -319,6 +319,22 @@ async def get_readings(customer_id: Optional[str] = None):
     readings = await db.readings.find(query).sort('reading_date', -1).to_list(1000)
     return [MeterReading(**str_id(r)) for r in readings]
 
+@api_router.get("/readings/latest/{customer_id}")
+async def get_latest_reading(customer_id: str):
+    """Get the latest meter reading for a customer to auto-populate previous_reading"""
+    reading = await db.readings.find_one(
+        {"customer_id": customer_id},
+        sort=[('reading_date', -1)]
+    )
+    if not reading:
+        return {"has_reading": False, "current_reading": 0}
+    
+    return {
+        "has_reading": True,
+        "current_reading": reading.get('current_reading', 0),
+        "reading_date": reading.get('reading_date')
+    }
+
 @api_router.get("/readings/{reading_id}", response_model=MeterReading)
 async def get_reading(reading_id: str):
     reading = await db.readings.find_one({"_id": ObjectId(reading_id)})

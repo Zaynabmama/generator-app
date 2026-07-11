@@ -31,6 +31,7 @@ export const generatorsAPI = {
 export const readingsAPI = {
   getAll: (params?: any) => api.get('/readings', { params }),
   getOne: (id: string) => api.get(`/readings/${id}`),
+  getLatest: (customerId: string) => api.get(`/readings/latest/${customerId}`),
   create: (data: any) => api.post('/readings', data),
 };
 
