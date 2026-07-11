@@ -54,6 +54,15 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="expenses"
+        options={{
+          title: 'المصاريف',
+          tabBarIcon: ({ color, size }) => (
+            <MaterialCommunityIcons name="cash-minus" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="reports"
         options={{
           title: 'التقارير',

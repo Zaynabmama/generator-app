@@ -1145,3 +1145,182 @@ class TestPaymentCascadeDelete:
             api_client.delete(f"{API}/customers/{cust_b}")
             # confirm cleanup
             assert list(mongo_db.payments.find({"customer_id": cust_b})) == []
+
+
+# ==================== Iteration 10: Dashboard kWh + expense breakdown + 'oil' type ====================
+
+class TestDashboardMonthlyStats:
+    """
+    Iteration 10:
+    GET /api/stats/dashboard must additionally return:
+      total_monthly_kwh, monthly_fuel_expense, monthly_oil_expense,
+      monthly_maintenance_expense, monthly_other_expense,
+      monthly_total_expenses, monthly_net_profit
+    Also: POST /api/expenses must accept expense_type='oil'.
+    """
+
+    def _gen_id(self, api_client):
+        return api_client.get(f"{API}/generators").json()[0]["id"]
+
+    def _new_customer(self, api_client):
+        payload = {
+            "name": f"TEST_ITER10_{uuid.uuid4().hex[:6]}",
+            "phone": "07755555555",
+            "address": "TEST",
+            "area": "المسعودية",
+            "meter_number": f"TEST-{uuid.uuid4().hex[:6]}",
+            "generator_id": self._gen_id(api_client),
+            "previous_balance": 0.0,
+        }
+        r = api_client.post(f"{API}/customers", json=payload)
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    def _new_reading(self, api_client, cust_id, prev, curr, date_iso=None):
+        r = api_client.post(f"{API}/readings", json={
+            "customer_id": cust_id,
+            "previous_reading": prev,
+            "current_reading": curr,
+            "reading_date": (date_iso or datetime.utcnow().isoformat()),
+        })
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    def _new_expense(self, api_client, etype, amount, date_iso=None):
+        r = api_client.post(f"{API}/expenses", json={
+            "expense_type": etype,
+            "amount": amount,
+            "description": f"TEST_ITER10_{etype}",
+            "expense_date": (date_iso or datetime.utcnow().isoformat()),
+        })
+        assert r.status_code == 200, f"{etype} expense failed: {r.status_code} {r.text}"
+        return r.json()
+
+    def test_dashboard_response_contains_all_new_fields(self, api_client):
+        r = api_client.get(f"{API}/stats/dashboard")
+        assert r.status_code == 200, r.text
+        data = r.json()
+        for key in [
+            "total_monthly_kwh",
+            "monthly_fuel_expense",
+            "monthly_oil_expense",
+            "monthly_maintenance_expense",
+            "monthly_other_expense",
+            "monthly_total_expenses",
+            "monthly_net_profit",
+        ]:
+            assert key in data, f"Missing dashboard field: {key}"
+            assert isinstance(data[key], (int, float)), f"{key} not numeric: {data[key]}"
+
+    def test_create_expense_type_oil_succeeds(self, api_client):
+        exp = self._new_expense(api_client, "oil", 12.34)
+        assert exp["expense_type"] == "oil"
+        assert exp["amount"] == 12.34
+        assert "id" in exp and exp["id"]
+        # cleanup
+        api_client.delete(f"{API}/expenses/{exp['id']}")
+
+    def test_create_expense_types_fuel_maintenance_other_still_work(self, api_client):
+        created = []
+        try:
+            for etype in ("fuel", "maintenance", "other"):
+                exp = self._new_expense(api_client, etype, 1.0)
+                assert exp["expense_type"] == etype
+                created.append(exp["id"])
+            # list contains them
+            r = api_client.get(f"{API}/expenses")
+            assert r.status_code == 200
+            all_types = {e["expense_type"] for e in r.json()}
+            assert {"fuel", "maintenance", "other"}.issubset(all_types)
+        finally:
+            for eid in created:
+                api_client.delete(f"{API}/expenses/{eid}")
+
+    def test_kwh_and_expense_deltas_after_create(self, api_client):
+        """Snapshot dashboard, add 1 reading (55 kWh, current month) + 4 expenses
+        (fuel/oil/maintenance/other), and verify each field increases by the exact
+        amount. This isolates the calculation without depending on absolute values."""
+        before = api_client.get(f"{API}/stats/dashboard").json()
+
+        cust_id = self._new_customer(api_client)
+        created_expenses = []
+        try:
+            # Reading in the current month (utcnow) - consumption = 55.0
+            self._new_reading(api_client, cust_id, 0.0, 55.0)
+
+            # Distinct amounts to detect miscategorization
+            e_fuel = self._new_expense(api_client, "fuel", 11.0)
+            e_oil = self._new_expense(api_client, "oil", 22.0)
+            e_maint = self._new_expense(api_client, "maintenance", 33.0)
+            e_other = self._new_expense(api_client, "other", 44.0)
+            created_expenses += [e_fuel["id"], e_oil["id"], e_maint["id"], e_other["id"]]
+
+            after = api_client.get(f"{API}/stats/dashboard").json()
+
+            # kWh delta
+            assert round(after["total_monthly_kwh"] - before["total_monthly_kwh"], 2) == 55.0, (
+                f"kWh delta wrong. before={before['total_monthly_kwh']} after={after['total_monthly_kwh']}"
+            )
+            # Expense deltas per type
+            assert round(after["monthly_fuel_expense"] - before["monthly_fuel_expense"], 2) == 11.0
+            assert round(after["monthly_oil_expense"] - before["monthly_oil_expense"], 2) == 22.0
+            assert round(after["monthly_maintenance_expense"] - before["monthly_maintenance_expense"], 2) == 33.0
+            assert round(after["monthly_other_expense"] - before["monthly_other_expense"], 2) == 44.0
+            # Total delta = 110
+            assert round(after["monthly_total_expenses"] - before["monthly_total_expenses"], 2) == 110.0
+            # monthly_total_expenses == sum of four buckets (invariant check on 'after')
+            assert round(
+                after["monthly_fuel_expense"] + after["monthly_oil_expense"]
+                + after["monthly_maintenance_expense"] + after["monthly_other_expense"]
+                - after["monthly_total_expenses"], 2
+            ) == 0.0, f"Sum of buckets != monthly_total_expenses: {after}"
+            # net_profit == month_revenue - monthly_total_expenses
+            assert round(
+                after["month_revenue"] - after["monthly_total_expenses"]
+                - after["monthly_net_profit"], 2
+            ) == 0.0, f"monthly_net_profit != month_revenue - monthly_total_expenses: {after}"
+        finally:
+            for eid in created_expenses:
+                api_client.delete(f"{API}/expenses/{eid}")
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    def test_previous_month_reading_not_counted_in_monthly_kwh(self, api_client):
+        """Reading dated in a previous month must NOT affect total_monthly_kwh."""
+        before = api_client.get(f"{API}/stats/dashboard").json()
+        cust_id = self._new_customer(api_client)
+        try:
+            # A safely-in-the-past date (2023) that is definitely not current month
+            past = datetime(2023, 6, 15, 10, 0, 0).isoformat()
+            self._new_reading(api_client, cust_id, 0.0, 999.0, past)
+            after = api_client.get(f"{API}/stats/dashboard").json()
+            assert after["total_monthly_kwh"] == before["total_monthly_kwh"], (
+                f"Past reading leaked into monthly kWh: before={before['total_monthly_kwh']} "
+                f"after={after['total_monthly_kwh']}"
+            )
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    def test_previous_month_expense_not_counted_in_monthly_expenses(self, api_client):
+        """Expense dated in a previous month must NOT affect monthly expense buckets."""
+        before = api_client.get(f"{API}/stats/dashboard").json()
+        past = datetime(2023, 6, 15, 10, 0, 0).isoformat()
+        exp = self._new_expense(api_client, "oil", 500.0, past)
+        try:
+            after = api_client.get(f"{API}/stats/dashboard").json()
+            assert after["monthly_oil_expense"] == before["monthly_oil_expense"], (
+                f"Past oil expense leaked: before={before['monthly_oil_expense']} "
+                f"after={after['monthly_oil_expense']}"
+            )
+            assert after["monthly_total_expenses"] == before["monthly_total_expenses"]
+        finally:
+            api_client.delete(f"{API}/expenses/{exp['id']}")
+
+    def test_delete_expense_still_works(self, api_client):
+        exp = self._new_expense(api_client, "oil", 7.77)
+        eid = exp["id"]
+        d = api_client.delete(f"{API}/expenses/{eid}")
+        assert d.status_code == 200, d.text
+        # Verify removed from list
+        r = api_client.get(f"{API}/expenses")
+        assert r.status_code == 200
+        assert not any(e["id"] == eid for e in r.json())

@@ -676,14 +676,40 @@ async def get_dashboard_stats():
     invoices = await db.invoices.find({"status": {"$in": ["unpaid", "partial"]}}).to_list(1000)
     total_debt = sum(inv.get('remaining_amount', 0) for inv in invoices)
     
-    # Get current month revenue
+    # Get current month
     now = datetime.utcnow()
     current_month = now.strftime('%Y-%m')
+    year = now.year
+    month_num = now.month
+    start_date = datetime(year, month_num, 1)
+    if month_num == 12:
+        end_date = datetime(year + 1, 1, 1)
+    else:
+        end_date = datetime(year, month_num + 1, 1)
+    
+    # Get current month revenue
     month_invoices = await db.invoices.find({"month": current_month}).to_list(1000)
     month_revenue = sum(inv.get('amount_paid', 0) for inv in month_invoices)
     
     # Get overdue count
     overdue_count = await db.invoices.count_documents({"is_overdue": True})
+    
+    # Calculate total kWh consumption for current month
+    monthly_readings = await db.readings.find({
+        "reading_date": {"$gte": start_date, "$lt": end_date}
+    }).to_list(1000)
+    total_monthly_kwh = sum(r.get('consumption', 0) for r in monthly_readings)
+    
+    # Calculate monthly expenses by type
+    monthly_expenses = await db.expenses.find({
+        "expense_date": {"$gte": start_date, "$lt": end_date}
+    }).to_list(1000)
+    
+    fuel_expense = sum(e.get('amount', 0) for e in monthly_expenses if e.get('expense_type') == 'fuel')
+    oil_expense = sum(e.get('amount', 0) for e in monthly_expenses if e.get('expense_type') == 'oil')
+    maintenance_expense = sum(e.get('amount', 0) for e in monthly_expenses if e.get('expense_type') == 'maintenance')
+    other_expense = sum(e.get('amount', 0) for e in monthly_expenses if e.get('expense_type') == 'other')
+    total_expenses = fuel_expense + oil_expense + maintenance_expense + other_expense
     
     return {
         "total_customers": total_customers,
@@ -692,7 +718,14 @@ async def get_dashboard_stats():
         "total_debt": total_debt,
         "month_revenue": month_revenue,
         "overdue_count": overdue_count,
-        "current_month": current_month
+        "current_month": current_month,
+        "total_monthly_kwh": total_monthly_kwh,
+        "monthly_fuel_expense": fuel_expense,
+        "monthly_oil_expense": oil_expense,
+        "monthly_maintenance_expense": maintenance_expense,
+        "monthly_other_expense": other_expense,
+        "monthly_total_expenses": total_expenses,
+        "monthly_net_profit": month_revenue - total_expenses
     }
 
 # Include the router in the main app

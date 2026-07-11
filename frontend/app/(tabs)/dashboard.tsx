@@ -107,6 +107,34 @@ export default function DashboardScreen() {
               </Card>
             </View>
 
+            {/* Monthly Consumption & Expenses */}
+            <Card style={styles.card}>
+              <Card.Content>
+                <Title style={styles.cardTitle}>ملخص الشهر الحالي</Title>
+                
+                <View style={styles.financeRow}>
+                  <Text style={styles.financeLabel}>إجمالي الكيلوواط:</Text>
+                  <Text style={[styles.financeValue, { color: '#FFC107' }]}>
+                    {stats?.total_monthly_kwh?.toFixed(0) || 0} kWh
+                  </Text>
+                </View>
+                
+                <View style={styles.financeRow}>
+                  <Text style={styles.financeLabel}>مصروف المازوت:</Text>
+                  <Text style={[styles.financeValue, { color: '#FF9800' }]}>
+                    ${stats?.monthly_fuel_expense?.toFixed(2) || '0.00'}
+                  </Text>
+                </View>
+                
+                <View style={styles.financeRow}>
+                  <Text style={styles.financeLabel}>مصروف الزيت:</Text>
+                  <Text style={[styles.financeValue, { color: '#795548' }]}>
+                    ${stats?.monthly_oil_expense?.toFixed(2) || '0.00'}
+                  </Text>
+                </View>
+              </Card.Content>
+            </Card>
+
             {/* Financial Overview */}
             <Card style={styles.card}>
               <Card.Content>
@@ -116,6 +144,30 @@ export default function DashboardScreen() {
                   <Text style={styles.financeLabel}>إيرادات الشهر الحالي:</Text>
                   <Text style={[styles.financeValue, { color: '#4CAF50' }]}>
                     ${stats?.month_revenue?.toFixed(2) || '0.00'}
+                  </Text>
+                </View>
+                
+                <View style={styles.financeRow}>
+                  <Text style={styles.financeLabel}>إجمالي المصاريف:</Text>
+                  <Text style={[styles.financeValue, { color: '#F44336' }]}>
+                    ${stats?.monthly_total_expenses?.toFixed(2) || '0.00'}
+                  </Text>
+                </View>
+
+                <View style={styles.financeRow}>
+                  <Text style={styles.financeLabel}>صافي الربح:</Text>
+                  <Text
+                    style={[
+                      styles.financeValue,
+                      {
+                        color:
+                          (stats?.monthly_net_profit || 0) >= 0
+                            ? '#4CAF50'
+                            : '#F44336',
+                      },
+                    ]}
+                  >
+                    ${stats?.monthly_net_profit?.toFixed(2) || '0.00'}
                   </Text>
                 </View>
                 

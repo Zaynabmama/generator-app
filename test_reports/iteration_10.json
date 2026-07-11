@@ -1,0 +1,44 @@
+{
+  "summary": "Backend-only verification of Iteration 10: extended /api/stats/dashboard fields (total_monthly_kwh, monthly_fuel_expense, monthly_oil_expense, monthly_maintenance_expense, monthly_other_expense, monthly_total_expenses, monthly_net_profit) and new 'oil' expense_type. Added TestDashboardMonthlyStats (7 tests). Full suite: 51/51 PASSED in 14.92s. Verified: (1) All 7 new fields present and numeric on GET /api/stats/dashboard. (2) POST /api/expenses with expense_type='oil' succeeds and returns the correct type. (3) fuel/maintenance/other expense types still work and appear in GET /api/expenses. (4) Delta test: adding a 55 kWh reading + 4 distinct expenses (fuel=11, oil=22, maintenance=33, other=44 = total 110) increases each bucket by the exact expected amount; sum of buckets == monthly_total_expenses; monthly_net_profit == month_revenue - monthly_total_expenses. (5) Readings/expenses dated in a past month do NOT leak into current-month kWh or expense totals. (6) DELETE /api/expenses/{id} still works. Full regression: auth (MS/Ms28796610**), generators=3 seed, dashboard basics, customer amperage removal, full flow $0.85/kWh + $5 monthly fee, payment status transitions, /readings/latest, invoice_number 5-digit sequential>=01710, /reports/*, customer cascade delete, payment cascade delete.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/expenses", "issue": "expense_type is a free-form string (no enum/whitelist). Any value like 'oil', 'foo', or '' is accepted and only fuel/oil/maintenance/other buckets are surfaced on dashboard; unknown types silently disappear from monthly_total_expenses (they are NOT in any bucket, so monthly_net_profit ignores them)."},
+      {"endpoint": "GET /api/stats/dashboard", "issue": "monthly_total_expenses = fuel+oil+maintenance+other only. If an expense has an unrecognized expense_type it is silently omitted from the total and from net_profit. Consider either whitelisting the type at write-time OR summing ALL expenses in the month for monthly_total_expenses."},
+      {"endpoint": "GET /api/stats/dashboard", "issue": "current_month/month_revenue are derived from datetime.utcnow() but invoice month is a client-supplied 'YYYY-MM' string. Mismatched timezones between client 'month' and server UTC current_month can misalign revenue vs kWh/expense windows. Carried consideration."},
+      {"endpoint": "POST /api/expenses", "issue": "No validation that amount > 0. Carried over."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(non-blocking) Consider making expense_type an Enum (fuel|oil|maintenance|other) or whitelisting server-side, so a typo cannot silently drop an expense from monthly_total_expenses / monthly_net_profit.",
+    "(non-blocking) Update ExpenseCreate docstring/comment in server.py L129 which still says 'fuel, maintenance, other' - it should include 'oil' now.",
+    "(non-blocking, carried) Add amount>0 validation on POST /api/expenses and POST /api/invoices/{id}/payment.",
+    "(non-blocking, carried) Aggregate customer.current_balance across all unpaid invoices; atomic invoice_number generation; wrap delete_customer cascade in a MongoDB transaction."
+  ],
+  "critical_code_review_comments": [
+    "server.py L697-712: current-month window uses datetime.utcnow() + [start_of_month, next_month). Correct and matches inclusive-lower/exclusive-upper semantics on reading_date and expense_date. Good.",
+    "server.py L708-712: expenses are bucketed by expense_type == 'fuel'|'oil'|'maintenance'|'other'. If a caller writes an unknown type, it is dropped from monthly_total_expenses and monthly_net_profit silently. Prefer sum(all monthly_expenses.amount) for the total; keep the 4 buckets for the per-type breakdown.",
+    "server.py L129 (ExpenseCreate): inline comment still reads '# fuel, maintenance, other' - please add 'oil' for consistency.",
+    "server.py L154-155 (carried): admin credentials still hardcoded.",
+    "server.py L459-462 / L434-476 (carried): payment amount not validated (>0, no overpayment guard); customer.current_balance is per-invoice, not aggregated."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (added TestDashboardMonthlyStats with 7 tests: field presence, oil expense POST, other expense types still work, exact deltas for kWh + 4 expense buckets + total + net_profit invariant, past-month reading exclusion, past-month expense exclusion, delete expense)"
+  ],
+  "success_rate": {"backend": "100% (51/51)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "New tests create TEST_ITER10_* customers, readings, and TEST_ITER10_{type} expenses; each test cleans up via DELETE /api/customers/{id} (cascades readings/invoices/payments) and DELETE /api/expenses/{id}. No orphaned TEST data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration 10 (dashboard kWh + expense breakdown + 'oil' type) is verified end-to-end with delta-based tests. The delta-approach (snapshot before, snapshot after) is robust against pre-existing data in the DB - reuse it for future dashboard changes. Note the minor gap: unknown expense_type values are silently omitted from monthly_total_expenses/monthly_net_profit; if main agent adds validation, add a test that POST /api/expenses with an invalid type returns 4xx. Also update the inline comment at server.py L129 to include 'oil'.",
+  "rca_of_issue": "N/A - this iteration is a feature addition, not a bug fix. Feature verified working."
+}
