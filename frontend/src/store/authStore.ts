@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { storage } from '@/src/utils/storage';
 
 interface User {
   username: string;
@@ -8,6 +8,7 @@ interface User {
 
 interface AuthState {
   user: User | null;
+  token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (username: string, password: string) => Promise<boolean>;
@@ -17,22 +18,33 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
+  token: null,
   isAuthenticated: false,
   isLoading: true,
-  
+
   login: async (username: string, password: string) => {
     try {
-      const response = await fetch(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-      
+      const response = await fetch(
+        `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/auth/login`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        }
+      );
+
+      if (!response.ok) return false;
+
       const data = await response.json();
-      
-      if (data.success) {
-        await AsyncStorage.setItem('user', JSON.stringify(data.user));
-        set({ user: data.user, isAuthenticated: true });
+
+      if (data.success && data.access_token) {
+        await storage.setItem('access_token', data.access_token);
+        await storage.setItem('user', JSON.stringify(data.user));
+        set({
+          user: data.user,
+          token: data.access_token,
+          isAuthenticated: true,
+        });
         return true;
       }
       return false;
@@ -41,18 +53,25 @@ export const useAuthStore = create<AuthState>((set) => ({
       return false;
     }
   },
-  
+
   logout: async () => {
-    await AsyncStorage.removeItem('user');
-    set({ user: null, isAuthenticated: false });
+    await storage.removeItem('access_token');
+    await storage.removeItem('user');
+    set({ user: null, token: null, isAuthenticated: false });
   },
-  
+
   checkAuth: async () => {
     try {
-      const userStr = await AsyncStorage.getItem('user');
-      if (userStr) {
+      const token = await storage.getItem('access_token');
+      const userStr = await storage.getItem('user');
+      if (token && userStr) {
         const user = JSON.parse(userStr);
-        set({ user, isAuthenticated: true, isLoading: false });
+        set({
+          user,
+          token,
+          isAuthenticated: true,
+          isLoading: false,
+        });
       } else {
         set({ isLoading: false });
       }

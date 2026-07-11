@@ -1,15 +1,19 @@
-from fastapi import FastAPI, APIRouter, HTTPException, status
+from fastapi import FastAPI, APIRouter, HTTPException, status, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import re
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from bson import ObjectId
-import bcrypt
+from bson.errors import InvalidId
+import jwt as pyjwt
+from passlib.context import CryptContext
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -19,9 +23,82 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
+# Auth configuration
+ADMIN_USERNAME = os.environ['ADMIN_USERNAME']
+ADMIN_PASSWORD_HASH = os.environ['ADMIN_PASSWORD_HASH']
+JWT_SECRET = os.environ['JWT_SECRET']
+JWT_ALGORITHM = os.environ.get('JWT_ALGORITHM', 'HS256')
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get('ACCESS_TOKEN_EXPIRE_MINUTES', '480'))
+
+pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
+security_scheme = HTTPBearer(auto_error=False)
+
 # Create the main app
 app = FastAPI()
-api_router = APIRouter(prefix="/api")
+
+# Helper: safe ObjectId conversion
+def safe_object_id(id_str: str) -> ObjectId:
+    try:
+        return ObjectId(id_str)
+    except (InvalidId, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="معرّف غير صالح")
+
+# Helper: escape regex special characters for safe search
+def escape_regex(text: str) -> str:
+    return re.escape(text)
+
+# JWT utilities
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception:
+        return False
+
+def create_access_token(subject: str) -> str:
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": subject,
+        "iat": now,
+        "exp": now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+    }
+    return pyjwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+async def get_current_admin(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
+):
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="مطلوب تسجيل الدخول",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    try:
+        payload = pyjwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except pyjwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="انتهت صلاحية الجلسة",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except pyjwt.InvalidTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="رمز غير صالح",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if payload.get("sub") != ADMIN_USERNAME:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="رمز غير صالح",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return {"username": ADMIN_USERNAME}
+
+# Public router - only login (no auth required)
+auth_router = APIRouter(prefix="/api")
+
+# Protected router - all other endpoints require JWT
+api_router = APIRouter(prefix="/api", dependencies=[Depends(get_current_admin)])
 
 # Helper function to convert ObjectId to string
 def str_id(doc):
@@ -39,6 +116,8 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     success: bool
     message: str
+    access_token: Optional[str] = None
+    token_type: str = "bearer"
     user: Optional[dict] = None
 
 class CustomerCreate(BaseModel):
@@ -148,23 +227,25 @@ class PaymentCreate(BaseModel):
 
 # ==================== Authentication ====================
 
-@api_router.post("/auth/login", response_model=LoginResponse)
+@auth_router.post("/auth/login", response_model=LoginResponse)
 async def login(request: LoginRequest):
-    # Hardcoded credentials for admin
-    ADMIN_USERNAME = "MS"
-    ADMIN_PASSWORD = "Ms28796610**"
-    
-    if request.username == ADMIN_USERNAME and request.password == ADMIN_PASSWORD:
-        return LoginResponse(
-            success=True,
-            message="تم تسجيل الدخول بنجاح",
-            user={"username": ADMIN_USERNAME, "role": "admin"}
-        )
-    else:
+    if request.username != ADMIN_USERNAME or not verify_password(request.password, ADMIN_PASSWORD_HASH):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="اسم المستخدم أو كلمة المرور غير صحيحة"
         )
+    token = create_access_token(subject=ADMIN_USERNAME)
+    return LoginResponse(
+        success=True,
+        message="تم تسجيل الدخول بنجاح",
+        access_token=token,
+        token_type="bearer",
+        user={"username": ADMIN_USERNAME, "role": "admin"}
+    )
+
+@api_router.get("/auth/me")
+async def get_me(current: dict = Depends(get_current_admin)):
+    return {"username": current["username"], "role": "admin"}
 
 # ==================== Customer APIs ====================
 
@@ -198,9 +279,10 @@ async def get_customers(
     if generator_id:
         query['generator_id'] = generator_id
     if search:
+        safe_search = escape_regex(search)
         query['$or'] = [
-            {'name': {'$regex': search, '$options': 'i'}},
-            {'phone': {'$regex': search, '$options': 'i'}}
+            {'name': {'$regex': safe_search, '$options': 'i'}},
+            {'phone': {'$regex': safe_search, '$options': 'i'}}
         ]
     
     customers = await db.customers.find(query).to_list(1000)
@@ -728,15 +810,16 @@ async def get_dashboard_stats():
         "monthly_net_profit": month_revenue - total_expenses
     }
 
-# Include the router in the main app
+# Include both routers
+app.include_router(auth_router)
 app.include_router(api_router)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Configure logging

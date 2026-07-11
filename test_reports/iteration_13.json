@@ -1,0 +1,57 @@
+{
+  "summary": "Backend-only verification of Iteration 13 CRITICAL security fix (JWT auth on all /api/* endpoints, bcrypt password hashing, CORS hardening, ObjectId validation helper, regex escape in customer search). Added 13 new tests (TestJWTAuthentication, TestObjectIdValidationAndRegexEscape, TestCORSConfig) and updated the shared api_client fixture to log in and inject a Bearer token on every request so all existing regression tests run against the now-protected endpoints. Result: 63/64 PASSED. JWT auth works end-to-end: login returns {success, access_token, token_type:'bearer', user}; wrong password/username -> 401; missing token -> 401 with Arabic detail 'مطلوب تسجيل الدخول'; invalid token -> 401; valid token -> 200 on all 10 spot-checked endpoints (/customers, /generators, /invoices, /readings, /expenses, /reports/{debts,financial,consumption}, /stats/dashboard, /auth/me); GET /api/auth/me returns {username:'MS', role:'admin'}; JWT payload has exp-iat = 480*60s (8 hours); CORS Access-Control-Allow-Credentials is NOT 'true' (allow_credentials=False). Regex escape in GET /api/customers?search=test.* is correctly escaped. ALL 51 pre-existing regression tests (amperage removal, monthly_fee, payment flow, invoice_number, cascade delete, dashboard kWh/expense buckets) STILL PASS with the JWT-protected api_client. The single FAIL is a real backend defect: safe_object_id() helper is defined at server.py L40-44 but NEVER wired into any route handler; GET /api/customers/invalid-id still calls ObjectId(customer_id) directly (L293), raises bson.errors.InvalidId, and FastAPI returns 500 instead of the expected 400. Same bug affects all routes that build ObjectId(id) from path params (customers, generators, invoices, readings, expenses cascade lookups).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/customers/{customer_id} (and 12+ sibling routes)",
+        "issue": "safe_object_id() helper is defined but UNUSED. Route handlers call bson.ObjectId(id) directly on path params (server.py L293, L303, L311, L316, L321, L331, L354, L362, L369, L375, L382, L428, L474, L511, L518, L536, L547, L618, L716). Passing an invalid ObjectId string raises bson.errors.InvalidId => FastAPI returns 500 Internal Server Error instead of the required 400. Verified: GET /api/customers/invalid-id -> 500. Fix: replace ObjectId(id) with safe_object_id(id) in all route handlers.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {"endpoint": "server.py L64 create_access_token", "issue": "pyjwt.encode() with datetime objects: works but 'iat' is stored as int seconds by PyJWT; test decoded fine. Consider explicit int(now.timestamp()) for portability."},
+      {"endpoint": "CORS", "issue": "allow_origins=['*'] with allow_credentials=False is safe per spec, but tightening to a specific origin allowlist for production is recommended."},
+      {"endpoint": "GET /api/invoices", "issue": "(carried) status query param not whitelisted; N update_one calls per read to flip is_overdue - prefer a single update_many."},
+      {"endpoint": "POST /api/expenses & POST /api/invoices/{id}/payment", "issue": "(carried) No amount>0 validation; expense_type still free-form string (no Enum)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "HIGH: Wire safe_object_id() into every route that converts a path-param string to ObjectId (server.py: customers L293/L303/L311/L316/L321/L331; generators L354/L362/L369/L375/L382; readings L428; invoices L511/L518/L536/L547; internal lookups in cascade delete and reports at L618, L716). Simplest fix: replace every 'ObjectId(some_id_str)' with 'safe_object_id(some_id_str)' where some_id_str comes from a request. This will make GET /api/customers/invalid-id return 400 with detail 'معرّف غير صالح' instead of 500.",
+    "OPTIONAL: Add a global exception handler for bson.errors.InvalidId -> HTTP 400 as a belt-and-suspenders safeguard.",
+    "OPTIONAL: Tighten CORS allow_origins to a specific allowlist for production; keep allow_credentials=False as-is.",
+    "(carried) Whitelist status values on GET /api/invoices (400 on invalid); optimize is_overdue update to update_many; make expense_type an Enum; validate amount>0.",
+    "(carried) Wrap DELETE /api/customers/{id} cascade in a MongoDB transaction; make invoice_number generation atomic via findOneAndUpdate on a counters doc."
+  ],
+  "critical_code_review_comments": [
+    "server.py L40-44: safe_object_id() is defined but has zero call-sites in the file - dead code today, and it's the exact helper needed to satisfy the spec's 400-not-500 requirement.",
+    "server.py L34: security_scheme = HTTPBearer(auto_error=False) is correct - lets get_current_admin() raise a 401 with a custom Arabic detail rather than FastAPI's default 403.",
+    "server.py L66-95 get_current_admin: correctly handles None credentials, ExpiredSignatureError, InvalidTokenError, and sub mismatch, all returning 401 with WWW-Authenticate:Bearer. Good.",
+    "server.py L98-101: clean split between auth_router (no dependency) and api_router (Depends(get_current_admin)). Login is correctly public; /api/auth/me is correctly protected. Verified via 401 spot-check on 10 endpoints.",
+    "server.py L246-248 /auth/me: uses Depends(get_current_admin) again even though the router already applies it - harmless duplicate, FastAPI dedups by cache=True by default. Not a bug.",
+    "server.py L233-236 login: constant-time comparison NOT used (username != check short-circuits); recommend hmac.compare_digest for username to avoid trivial user-enum via timing. Bcrypt verify already runs regardless.",
+    "server.py L817-823 CORS: allow_credentials=False, methods+headers narrowed per spec. Verified header 'access-control-allow-credentials' != 'true'.",
+    "server.py L282-286: escape_regex(search) applied to $regex - PASSED test: GET /api/customers?search=test.* now treats '.*' literally.",
+    "backend/.env: ADMIN_PASSWORD_HASH is a bcrypt $2b$12$ hash for 'Ms28796610**' (verified indirectly via successful login), JWT_SECRET is 64 hex chars (32 bytes), ACCESS_TOKEN_EXPIRE_MINUTES=480. All correctly loaded.",
+    "(carried) server.py L417-423: on every GET /api/invoices, overdue invoices trigger individual update_one - O(N) writes per read.",
+    "(carried) server.py L129 ExpenseCreate: docstring omits 'oil' though runtime accepts it."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (updated api_client fixture to log in and inject Bearer token; added TestJWTAuthentication (10 tests), TestObjectIdValidationAndRegexEscape (2 tests), TestCORSConfig (1 test))"
+  ],
+  "success_rate": {"backend": "98.4% (63/64)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "None. All new tests use TEST_* prefix and clean up inline.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration 13 introduced JWT auth: login at POST /api/auth/login (public), everything else under /api/* requires 'Authorization: Bearer <token>' (480-min expiry). Admin credentials in /app/backend/.env: ADMIN_USERNAME=MS, ADMIN_PASSWORD_HASH=bcrypt($2b$12$...) matching 'Ms28796610**'. api_client fixture in backend_test.py now performs login and injects the Bearer token so all existing regression tests continue to work. If E1 needs to retest after fixing safe_object_id(): rerun `pytest /app/backend/tests/backend_test.py -v`; the currently failing test `TestObjectIdValidationAndRegexEscape::test_invalid_customer_id_returns_400_not_500` should turn green and no others should regress. For future frontend testing: (1) verify AsyncStorage persists token across app reloads, (2) 401 response interceptor clears storage and redirects to /login, (3) request interceptor injects Bearer token on ALL axios calls (including retries), (4) login form errors surface the Arabic 401 detail 'اسم المستخدم أو كلمة المرور غير صحيحة'.",
+  "rca_of_issue": "safe_object_id() helper was added (server.py L40-44) as part of the Iteration 13 hardening spec, but the diff did NOT replace the existing ObjectId(id) call-sites in the route handlers. Reproduction: 1) GET /api/customers/invalid-id with a valid Bearer token; 2) motor calls db.customers.find_one({'_id': ObjectId('invalid-id')}); 3) bson raises InvalidId; 4) FastAPI's default exception handler returns 500. Fix: mechanical replace of `ObjectId(x)` -> `safe_object_id(x)` wherever `x` is a value coming from a URL path param or request body id field (>15 occurrences)."
+}

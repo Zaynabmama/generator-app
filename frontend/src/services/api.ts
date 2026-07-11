@@ -1,4 +1,6 @@
 import axios from 'axios';
+import { storage } from '@/src/utils/storage';
+import { router } from 'expo-router';
 
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL + '/api';
 
@@ -8,6 +10,37 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+// Request interceptor: attach JWT token
+api.interceptors.request.use(
+  async (config) => {
+    const token = await storage.getItem('access_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+// Response interceptor: handle 401 (expired/invalid token)
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error.response && error.response.status === 401) {
+      // Clear stored auth
+      await storage.removeItem('access_token');
+      await storage.removeItem('user');
+      // Redirect to login
+      try {
+        router.replace('/');
+      } catch (e) {
+        // Router might not be ready
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 // Customers
 export const customersAPI = {

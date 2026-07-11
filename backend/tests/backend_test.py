@@ -32,11 +32,153 @@ BASE_URL = BASE_URL.rstrip("/")
 API = f"{BASE_URL}/api"
 
 
+ADMIN_USERNAME = "MS"
+ADMIN_PASSWORD = "Ms28796610**"
+
+
 @pytest.fixture(scope="module")
 def api_client():
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json"})
+    # Log in to obtain JWT and inject Authorization header for all subsequent requests
+    r = s.post(f"{API}/auth/login",
+               json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD})
+    assert r.status_code == 200, f"Login failed in fixture: {r.status_code} {r.text}"
+    token = r.json().get("access_token")
+    assert token, f"No access_token in login response: {r.text}"
+    s.headers.update({"Authorization": f"Bearer {token}"})
     return s
+
+
+# ==================== JWT Auth (Iteration 13) ====================
+
+class TestJWTAuthentication:
+    """Verify JWT-based auth is enforced on all /api/* endpoints (except login)."""
+
+    def test_login_success_returns_token(self):
+        r = requests.post(f"{API}/auth/login",
+                          json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD})
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["success"] is True
+        assert data["token_type"] == "bearer"
+        assert isinstance(data["access_token"], str) and len(data["access_token"]) > 20
+        # JWT format: header.payload.signature
+        assert data["access_token"].count(".") == 2
+
+    def test_login_wrong_password_returns_401(self):
+        r = requests.post(f"{API}/auth/login",
+                          json={"username": ADMIN_USERNAME, "password": "WRONG"})
+        assert r.status_code == 401, r.text
+
+    def test_login_wrong_username_returns_401(self):
+        r = requests.post(f"{API}/auth/login",
+                          json={"username": "not_a_user", "password": ADMIN_PASSWORD})
+        assert r.status_code == 401, r.text
+
+    def test_protected_endpoint_without_auth_returns_401(self):
+        r = requests.get(f"{API}/customers")
+        assert r.status_code == 401, r.text
+        # Arabic detail required by spec
+        assert "مطلوب تسجيل الدخول" in r.text
+
+    def test_protected_endpoint_with_invalid_token_returns_401(self):
+        r = requests.get(f"{API}/customers",
+                         headers={"Authorization": "Bearer not.a.valid.jwt"})
+        assert r.status_code == 401, r.text
+
+    def test_protected_endpoint_with_valid_token_returns_200(self, api_client):
+        r = api_client.get(f"{API}/customers")
+        assert r.status_code == 200, r.text
+        assert isinstance(r.json(), list)
+
+    def test_auth_me_with_valid_token(self, api_client):
+        r = api_client.get(f"{API}/auth/me")
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["username"] == ADMIN_USERNAME
+        assert data["role"] == "admin"
+
+    def test_auth_me_without_token_returns_401(self):
+        r = requests.get(f"{API}/auth/me")
+        assert r.status_code == 401, r.text
+
+    def test_jwt_expiry_is_480_minutes(self):
+        """Decode JWT payload (base64) and verify exp - iat == 480 * 60 seconds."""
+        import base64, json as _json
+        r = requests.post(f"{API}/auth/login",
+                          json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD})
+        token = r.json()["access_token"]
+        payload_b64 = token.split(".")[1]
+        # pad
+        payload_b64 += "=" * (-len(payload_b64) % 4)
+        payload = _json.loads(base64.urlsafe_b64decode(payload_b64))
+        assert payload["sub"] == ADMIN_USERNAME
+        assert (payload["exp"] - payload["iat"]) == 480 * 60, payload
+
+    def test_all_protected_endpoints_require_auth(self):
+        """Spot-check every listed protected endpoint returns 401 without token."""
+        endpoints = [
+            ("GET", "/customers"),
+            ("GET", "/generators"),
+            ("GET", "/invoices"),
+            ("GET", "/readings"),
+            ("GET", "/expenses"),
+            ("GET", "/reports/debts"),
+            ("GET", "/reports/financial"),
+            ("GET", "/reports/consumption"),
+            ("GET", "/stats/dashboard"),
+            ("GET", "/auth/me"),
+        ]
+        for method, path in endpoints:
+            r = requests.request(method, f"{API}{path}")
+            assert r.status_code == 401, f"{method} {path} expected 401, got {r.status_code}"
+
+
+class TestObjectIdValidationAndRegexEscape:
+    """Iteration 13: invalid ObjectId -> 400 (not 500); search regex escaped."""
+
+    def test_invalid_customer_id_returns_400_not_500(self, api_client):
+        r = api_client.get(f"{API}/customers/invalid-id")
+        # Fix requires safe_object_id() to be USED in the route handler.
+        # server.py L293 currently calls ObjectId(customer_id) directly, which
+        # raises InvalidId => FastAPI returns 500. Flag as regression if 500.
+        assert r.status_code != 500, (
+            f"Expected 400 (or 404), got 500 - safe_object_id() not applied to "
+            f"GET /api/customers/{{id}}. Response: {r.text}"
+        )
+        assert r.status_code in (400, 404, 422), r.text
+
+    def test_regex_escape_in_customer_search(self, api_client):
+        """search=test.* must be treated as literal (escaped), not as regex."""
+        # Should not error and should return an empty (or literal-match) list.
+        r = api_client.get(f"{API}/customers", params={"search": "test.*"})
+        assert r.status_code == 200, r.text
+        # None of the returned customer names should be arbitrary matches
+        # (i.e., without a literal 'test.*' substring)
+        # If regex wasn't escaped, "test.*" would match any string starting with "test".
+        # After escaping, only literal 'test.*' substrings match.
+        data = r.json()
+        for c in data:
+            haystack = (c.get("name", "") or "") + (c.get("phone", "") or "")
+            assert "test.*" in haystack, (
+                f"Unexpected match, regex likely NOT escaped: {c}"
+            )
+
+
+class TestCORSConfig:
+    def test_cors_allow_credentials_false(self):
+        r = requests.options(
+            f"{API}/customers",
+            headers={
+                "Origin": "https://example.com",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "authorization,content-type",
+            },
+        )
+        # allow_credentials=False means no 'access-control-allow-credentials: true'
+        ac = r.headers.get("access-control-allow-credentials", "").lower()
+        assert ac != "true", f"allow_credentials should be False, got header: {ac!r}"
 
 
 # ==================== Auth ====================
