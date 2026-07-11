@@ -13,6 +13,9 @@ import {
   Card,
   ActivityIndicator,
   IconButton,
+  Portal,
+  Dialog,
+  TextInput as PaperInput,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -30,6 +33,8 @@ export default function InvoiceDetailScreen() {
   const [customer, setCustomer] = useState<any>(null);
   const [reading, setReading] = useState<any>(null);
   const [generator, setGenerator] = useState<any>(null);
+  const [paymentDialogVisible, setPaymentDialogVisible] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState('');
 
   const BUSINESS_INFO = {
     name: 'أبو عباس للإنارة',
@@ -304,6 +309,18 @@ export default function InvoiceDetailScreen() {
     try {
       setSending(true);
       const html = generateInvoiceHTML();
+      
+      if (Platform.OS === 'web') {
+        // On web, open in new window for print
+        const win = window.open('', '_blank');
+        if (win) {
+          win.document.write(html);
+          win.document.close();
+          setTimeout(() => win.print(), 500);
+        }
+        return null;
+      }
+      
       const { uri } = await Print.printToFileAsync({
         html,
         base64: false,
@@ -311,7 +328,7 @@ export default function InvoiceDetailScreen() {
       return uri;
     } catch (error) {
       console.error('PDF error:', error);
-      Alert.alert('خطأ', 'حدث خطأ أثناء إنشاء PDF');
+      Alert.alert('خطأ', 'حدث خطأ أثناء إنشاء PDF: ' + String(error));
       return null;
     } finally {
       setSending(false);
@@ -322,26 +339,92 @@ export default function InvoiceDetailScreen() {
     try {
       setSending(true);
       const html = generateInvoiceHTML();
-      await Print.printAsync({ html });
+      
+      if (Platform.OS === 'web') {
+        const win = window.open('', '_blank');
+        if (win) {
+          win.document.write(html);
+          win.document.close();
+          setTimeout(() => win.print(), 500);
+        }
+      } else {
+        await Print.printAsync({ html });
+      }
     } catch (error) {
       console.error('Print error:', error);
-      Alert.alert('خطأ', 'حدث خطأ أثناء الطباعة');
+      Alert.alert('خطأ', 'حدث خطأ أثناء الطباعة: ' + String(error));
     } finally {
       setSending(false);
     }
   };
 
   const handleSharePDF = async () => {
-    const uri = await generatePDF();
-    if (uri) {
-      try {
+    try {
+      setSending(true);
+      
+      if (Platform.OS === 'web') {
+        const html = generateInvoiceHTML();
+        const win = window.open('', '_blank');
+        if (win) {
+          win.document.write(html);
+          win.document.close();
+          setTimeout(() => win.print(), 500);
+        }
+        setSending(false);
+        return;
+      }
+      
+      const html = generateInvoiceHTML();
+      const { uri } = await Print.printToFileAsync({
+        html,
+        base64: false,
+      });
+      
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable && uri) {
         await Sharing.shareAsync(uri, {
           mimeType: 'application/pdf',
           dialogTitle: 'مشاركة الفاتورة',
+          UTI: 'com.adobe.pdf',
         });
-      } catch (error) {
-        console.error('Share error:', error);
+      } else {
+        Alert.alert('تنبيه', 'المشاركة غير متاحة على هذا الجهاز');
       }
+    } catch (error) {
+      console.error('Share error:', error);
+      Alert.alert('خطأ', 'حدث خطأ أثناء المشاركة: ' + String(error));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handlePayment = () => {
+    setPaymentAmount(invoice.remaining_amount.toString());
+    setPaymentDialogVisible(true);
+  };
+
+  const submitPayment = async () => {
+    if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
+      Alert.alert('خطأ', 'الرجاء إدخال مبلغ صحيح');
+      return;
+    }
+
+    try {
+      setSending(true);
+      await invoicesAPI.addPayment(invoice.id, {
+        amount: parseFloat(paymentAmount),
+        payment_date: new Date().toISOString(),
+        notes: '',
+      });
+
+      Alert.alert('نجاح', 'تم تسجيل الدفعة بنجاح');
+      setPaymentDialogVisible(false);
+      setPaymentAmount('');
+      await fetchData();
+    } catch (error: any) {
+      Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء تسجيل الدفعة');
+    } finally {
+      setSending(false);
     }
   };
 
@@ -560,6 +643,21 @@ ${BUSINESS_INFO.phones}
 
         {/* Action Buttons */}
         <View style={styles.buttonsContainer}>
+          {invoice.status !== 'paid' && (
+            <Button
+              mode="contained"
+              icon="cash-plus"
+              onPress={handlePayment}
+              loading={sending}
+              disabled={sending}
+              style={[styles.actionButton, { backgroundColor: '#2196F3' }]}
+              contentStyle={styles.buttonContent}
+              testID="record-payment-btn"
+            >
+              تسجيل دفعة
+            </Button>
+          )}
+
           <Button
             mode="contained"
             icon="whatsapp"
@@ -600,6 +698,35 @@ ${BUSINESS_INFO.phones}
           </Button>
         </View>
       </ScrollView>
+
+      <Portal>
+        <Dialog
+          visible={paymentDialogVisible}
+          onDismiss={() => setPaymentDialogVisible(false)}
+        >
+          <Dialog.Title>تسجيل دفعة</Dialog.Title>
+          <Dialog.Content>
+            <Text style={styles.dialogText}>
+              المشترك: {customer?.name}
+            </Text>
+            <Text style={styles.dialogText}>
+              المبلغ المتبقي: ${invoice?.remaining_amount.toFixed(2)}
+            </Text>
+            <PaperInput
+              label="مبلغ الدفعة"
+              value={paymentAmount}
+              onChangeText={setPaymentAmount}
+              keyboardType="numeric"
+              mode="outlined"
+              style={styles.dialogInput}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setPaymentDialogVisible(false)}>إلغاء</Button>
+            <Button onPress={submitPayment} loading={sending}>تسجيل</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </SafeAreaView>
   );
 }
@@ -757,5 +884,13 @@ const styles = StyleSheet.create({
   },
   buttonContent: {
     paddingVertical: 8,
+  },
+  dialogText: {
+    fontSize: 14,
+    color: '#ccc',
+    marginBottom: 8,
+  },
+  dialogInput: {
+    marginTop: 12,
   },
 });

@@ -1,0 +1,43 @@
+{
+  "summary": "Backend-only re-verification after main agent's frontend fixes (payment button on invoice detail screen + PDF error handling). Backend was NOT changed. Re-ran full pytest suite against public EXPO_PUBLIC_BACKEND_URL: 37/37 PASSED in 7.40s. Explicitly verified all requested payment scenarios: (1) POST /api/invoices/{id}/payment accepts {amount, notes} with invoice_id in URL path; (2) amount_paid ACCUMULATES across multiple payments (30 + 60 -> 90, not reset); (3) partial payment: total=$90, pay $30 -> amount_paid=$30, remaining=$60, status='partial'; (4) full payment: pay $90 -> amount_paid=$90, remaining=$0, status='paid'; (5) minimal body {amount} only works; (6) 404 for non-existent invoice; (7) GET /api/invoices/{id} reflects updated amount_paid, remaining_amount, and status after payments. Regression verified for: auth (MS/Ms28796610**), 3 seed generators, customer CRUD (amperage fully removed), full customer->reading->invoice flow, /api/readings/latest/{customer_id} (route not shadowed, sorts by reading_date desc, handles missing/invalid ids), invoice_number auto-generation (5-digit sequential, >=01710), dashboard, /reports/debts, /reports/financial, /reports/consumption. No backend regressions detected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/invoices/{id}/payment", "issue": "No validation that amount > 0. A negative or zero payment silently mutates amount_paid downward and could take status back from 'paid' to 'partial'/'unpaid'."},
+      {"endpoint": "POST /api/invoices/{id}/payment", "issue": "No overpayment guard. amount_paid can exceed total_amount + previous_balance, producing negative remaining_amount and current_balance."},
+      {"endpoint": "POST /api/invoices/{id}/payment", "issue": "Customer.current_balance is set to THIS invoice's remaining, not the sum of all outstanding invoices for the customer. Paying an older invoice will overwrite the balance shown from a newer one and mask real debt."},
+      {"endpoint": "POST /api/invoices", "issue": "total_amount trusted from client; server should compute total = consumption_charge + monthly_fee (previous_balance handled separately)."},
+      {"endpoint": "POST /api/invoices", "issue": "invoice_number generation is not atomic (find_one + parse + insert); concurrent invoice creations can collide. No unique index on invoice_number."},
+      {"endpoint": "DELETE /api/customers/{id}", "issue": "Does not cascade-delete the customer's invoices, readings, or payments. TEST_ data accumulates in db.invoices across test runs."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Frontend: verify the newly-added payment button on invoice detail screen calls POST /api/invoices/{id}/payment with body {amount, notes} (backend contract confirmed working).",
+    "Backend hardening (non-blocking): validate payment.amount > 0 and reject overpayment (amount > remaining_amount).",
+    "Backend hardening (non-blocking): fix Customer.current_balance to aggregate remaining across ALL unpaid/partial invoices for the customer, not just the last touched invoice - this is directly related to the user's original confusion (\u0648\u0627\u0635\u0644 showing $0 on old invoices).",
+    "Backend hardening (non-blocking): make invoice_number generation atomic via counters collection or unique index + retry."
+  ],
+  "critical_code_review_comments": [
+    "server.py L459-462: update customer.current_balance = new_remaining (per-invoice), not aggregated. This is the ROOT CAUSE of the user's confusion described in the problem statement - paying invoice Y sets current_balance to Y's remaining, ignoring invoice X's remaining. Consider recomputing sum(remaining) over invoices where status in ('unpaid','partial').",
+    "server.py L429-470 add_payment: no amount>0 check, no overpayment check.",
+    "server.py L348-392 create_invoice: total_amount is client-supplied; server does not recompute.",
+    "server.py: Pydantic v1 .dict() and deprecated @app.on_event('shutdown') still in use (carried over).",
+    "server.py L154-155: Admin credentials hardcoded (carried over)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (37/37)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "All tests create TEST_ prefixed customers/readings/invoices and clean up via DELETE /api/customers/{id} in try/finally. DELETE customer does NOT cascade delete their invoices, so TEST invoices persist in db.invoices across runs (does not affect test correctness).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend contract for payment endpoint is stable and confirmed: POST /api/invoices/{invoice_id}/payment with body {amount: float, payment_date?: iso, notes?: string} -> 200 {message, new_remaining}. amount_paid accumulates. Status transitions: unpaid -> partial (0 < paid < total+prev) -> paid (paid >= total+prev). The reported user issue about \u0648\u0627\u0635\u0644 showing $0 on old invoices is CORRECT backend behavior - payments are per-invoice, and each invoice tracks its own amount_paid. Frontend fixes (payment button in detail screen, PDF error handling) are out of scope for this backend-only run and were NOT re-tested. If backend hardening from action_items is applied, re-run pytest suite - baseline is 37/37."
+}
