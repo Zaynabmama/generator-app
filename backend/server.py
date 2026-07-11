@@ -814,6 +814,17 @@ async def get_dashboard_stats():
 app.include_router(auth_router)
 app.include_router(api_router)
 
+# Global exception handler for invalid ObjectId
+from fastapi.requests import Request
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(InvalidId)
+async def invalid_id_handler(request: Request, exc: InvalidId):
+    return JSONResponse(
+        status_code=400,
+        content={"detail": "معرّف غير صالح"},
+    )
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=False,

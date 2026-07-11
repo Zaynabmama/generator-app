@@ -1,0 +1,45 @@
+{
+  "summary": "Backend-only verification of Iteration 14 fix: global @app.exception_handler(InvalidId) catches bson.errors.InvalidId anywhere in the stack and returns HTTP 400 with Arabic detail 'معرّف غير صالح' instead of the previous 500. Verified via 7 new tests covering all invalid-ObjectId scenarios requested in the review: GET /api/customers/invalid-id, GET /api/generators/invalid-id, GET /api/invoices/invalid-id, GET /api/readings/invalid-id, DELETE /api/customers/invalid-id, PUT /api/customers/invalid-id, and multiple malformed shapes (invalid-id, not-a-hex, 12345, zzzz..). All return 400 with the exact Arabic detail. Regression: well-formed but non-existent ObjectId (507f1f77bcf86cd799439011) still correctly returns 404 (not swallowed by the InvalidId handler). All previous regression tests still pass. Result: 71/71 PASSED (100%). Previous iteration_13 flag (safe_object_id defined-but-unused) is now effectively resolved by the global handler approach - cleaner than mechanically replacing every ObjectId() call-site.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "server.py L40-44", "issue": "safe_object_id() helper is still defined but never called - now redundant given the global exception handler. Consider removing to reduce dead code, or use it inline for explicit 400 responses when you also need to short-circuit before I/O."},
+      {"endpoint": "GET /api/invoices", "issue": "(carried) status query param not whitelisted; N update_one calls per read to flip is_overdue - prefer a single update_many."},
+      {"endpoint": "POST /api/expenses & POST /api/invoices/{id}/payment", "issue": "(carried) No amount>0 validation; expense_type still free-form string (no Enum)."},
+      {"endpoint": "CORS", "issue": "allow_origins=['*'] is safe with allow_credentials=False, but a per-env allowlist is recommended for production."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: Remove the now-unused safe_object_id() helper (server.py L40-44) or keep it for explicit early validation - your call. Global handler already covers the required behavior.",
+    "OPTIONAL: Tighten CORS allow_origins for production.",
+    "(carried) Whitelist status values on GET /api/invoices (400 on invalid); optimize is_overdue update to update_many; make expense_type an Enum; validate amount>0.",
+    "(carried) Wrap DELETE /api/customers/{id} cascade in a MongoDB transaction; make invoice_number generation atomic via findOneAndUpdate on a counters doc."
+  ],
+  "critical_code_review_comments": [
+    "server.py L821-826: @app.exception_handler(InvalidId) correctly registered on the FastAPI app (not APIRouter) and returns JSONResponse(status_code=400, content={'detail':'معرّف غير صالح'}). Verified across GET/PUT/DELETE for customers/generators/invoices/readings.",
+    "The handler approach is cleaner than replacing every ObjectId(id) call: single source of truth, and it also catches InvalidId raised transitively (e.g., inside cascade deletes, joins, or aggregation stages).",
+    "Verified 404 semantics preserved: well-formed ObjectId that doesn't match a document still returns 404 (not caught by InvalidId handler because bson successfully parses the id).",
+    "server.py L40-44 safe_object_id() is now dead code - low priority cleanup.",
+    "(carried) server.py L417-423: on every GET /api/invoices, overdue invoices trigger individual update_one - O(N) writes per read.",
+    "(carried) server.py L129 ExpenseCreate: docstring omits 'oil' though runtime accepts it."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (rewrote TestObjectIdValidationAndRegexEscape to cover all 6 endpoints in the review request plus 2 regression tests; total +7 tests)"
+  ],
+  "success_rate": {"backend": "100% (71/71)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "None. All tests use TEST_* prefix and clean up inline.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 14 added a global FastAPI exception handler for bson.errors.InvalidId at server.py L821-826 returning HTTP 400 with Arabic detail 'معرّف غير صالح'. All 71 backend tests pass. safe_object_id() helper (L40-44) is now redundant - can be removed in a future cleanup. api_client fixture still logs in and injects a Bearer token. If future iterations touch route handlers or ObjectId parsing, run `pytest /app/backend/tests/backend_test.py -v` to catch regressions; the TestObjectIdValidationAndRegexEscape class is the primary guard for this fix.",
+  "rca_of_issue": "Not applicable - fix verified working. Root of the previous 500 was that route handlers called ObjectId(path_param) directly; bson raised InvalidId which propagated as an unhandled exception -> FastAPI default 500. Iteration 14 registered a global exception handler mapping InvalidId -> 400, which requires zero changes to the route handlers themselves."
+}

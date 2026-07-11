@@ -136,18 +136,65 @@ class TestJWTAuthentication:
 
 
 class TestObjectIdValidationAndRegexEscape:
-    """Iteration 13: invalid ObjectId -> 400 (not 500); search regex escaped."""
+    """Iteration 13/14: invalid ObjectId -> 400 (not 500); search regex escaped.
+    Iteration 14 added a global @app.exception_handler(InvalidId) that catches
+    bson.errors.InvalidId anywhere in the stack and returns 400 with Arabic
+    detail 'معرّف غير صالح'."""
 
     def test_invalid_customer_id_returns_400_not_500(self, api_client):
         r = api_client.get(f"{API}/customers/invalid-id")
-        # Fix requires safe_object_id() to be USED in the route handler.
-        # server.py L293 currently calls ObjectId(customer_id) directly, which
-        # raises InvalidId => FastAPI returns 500. Flag as regression if 500.
-        assert r.status_code != 500, (
-            f"Expected 400 (or 404), got 500 - safe_object_id() not applied to "
-            f"GET /api/customers/{{id}}. Response: {r.text}"
-        )
-        assert r.status_code in (400, 404, 422), r.text
+        assert r.status_code == 400, r.text
+        assert "معرّف غير صالح" in r.text
+
+    def test_invalid_generator_id_returns_400(self, api_client):
+        r = api_client.get(f"{API}/generators/invalid-id")
+        assert r.status_code == 400, r.text
+        assert "معرّف غير صالح" in r.text
+
+    def test_invalid_invoice_id_returns_400(self, api_client):
+        r = api_client.get(f"{API}/invoices/invalid-id")
+        assert r.status_code == 400, r.text
+        assert "معرّف غير صالح" in r.text
+
+    def test_invalid_reading_id_returns_400(self, api_client):
+        r = api_client.get(f"{API}/readings/invalid-id")
+        assert r.status_code == 400, r.text
+        assert "معرّف غير صالح" in r.text
+
+    def test_delete_invalid_customer_id_returns_400(self, api_client):
+        r = api_client.delete(f"{API}/customers/invalid-id")
+        assert r.status_code == 400, r.text
+        assert "معرّف غير صالح" in r.text
+
+    def test_put_invalid_customer_id_returns_400(self, api_client):
+        # send a valid-ish body (server may not even reach validation)
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"] if gens else "x"
+        payload = {
+            "name": "TEST_x",
+            "phone": "07700000000",
+            "address": "x",
+            "area": "المسعودية",
+            "meter_number": "TEST-x",
+            "generator_id": gen_id,
+            "previous_balance": 0.0,
+        }
+        r = api_client.put(f"{API}/customers/invalid-id", json=payload)
+        assert r.status_code == 400, r.text
+        assert "معرّف غير صالح" in r.text
+
+    def test_invalid_id_various_shapes_all_400(self, api_client):
+        """Different malformed ObjectId strings all funnel through the handler."""
+        for bad in ["invalid-id", "not-a-hex", "12345", "zzzzzzzzzzzzzzzzzzzzzzzz"]:
+            r = api_client.get(f"{API}/customers/{bad}")
+            assert r.status_code == 400, f"'{bad}' -> {r.status_code}: {r.text}"
+
+    def test_wellformed_but_missing_objectid_still_404(self, api_client):
+        """Regression: valid-format ObjectId that doesn't exist must remain 404,
+        NOT be swallowed by the InvalidId handler."""
+        fake = "507f1f77bcf86cd799439011"
+        r = api_client.get(f"{API}/customers/{fake}")
+        assert r.status_code == 404, r.text
 
     def test_regex_escape_in_customer_search(self, api_client):
         """search=test.* must be treated as literal (escaped), not as regex."""
