@@ -46,7 +46,6 @@ class CustomerCreate(BaseModel):
     phone: str
     address: str
     area: str  # المسعودية، الشرقي، الحيصة، الغربي
-    amperage: int  # عدد الأمبير
     meter_number: str  # رقم العداد
     generator_id: str  # المولد التابع له
     previous_balance: float = 0.0  # الرصيد السابق
@@ -58,7 +57,6 @@ class Customer(BaseModel):
     phone: str
     address: str
     area: str
-    amperage: int
     meter_number: str
     generator_id: str
     previous_balance: float = 0.0

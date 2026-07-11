@@ -156,9 +156,6 @@ export default function CreateInvoiceScreen() {
             <Text style={styles.infoLabel}>المنطقة:</Text>
             <Text style={styles.infoValue}>{selectedCustomer.area}</Text>
 
-            <Text style={styles.infoLabel}>عدد الأمبير:</Text>
-            <Text style={styles.infoValue}>{selectedCustomer.amperage}</Text>
-
             <Text style={styles.infoLabel}>رقم العداد:</Text>
             <Text style={styles.infoValue}>{selectedCustomer.meter_number}</Text>
 

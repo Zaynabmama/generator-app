@@ -123,9 +123,6 @@ export default function CustomersScreen() {
           <Chip icon="map-marker" style={styles.chip}>
             {item.area}
           </Chip>
-          <Chip icon="flash" style={styles.chip}>
-            {item.amperage} أمبير
-          </Chip>
         </View>
 
         <Text style={styles.detailText}>

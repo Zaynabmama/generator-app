@@ -28,7 +28,6 @@ export default function AddCustomerScreen() {
     phone: '',
     address: '',
     area: 'المسعودية',
-    amperage: '',
     meter_number: '',
     generator_id: '',
     previous_balance: '0',
@@ -58,7 +57,6 @@ export default function AddCustomerScreen() {
       !formData.name ||
       !formData.phone ||
       !formData.address ||
-      !formData.amperage ||
       !formData.meter_number ||
       !formData.generator_id
     ) {
@@ -70,7 +68,6 @@ export default function AddCustomerScreen() {
     try {
       const data = {
         ...formData,
-        amperage: parseInt(formData.amperage),
         previous_balance: parseFloat(formData.previous_balance),
       };
 
@@ -151,17 +148,6 @@ export default function AddCustomerScreen() {
                 }
                 buttons={areas.map((area) => ({ value: area, label: area }))}
                 style={styles.segmented}
-              />
-
-              <TextInput
-                label="عدد الأمبير *"
-                value={formData.amperage}
-                onChangeText={(text) =>
-                  setFormData({ ...formData, amperage: text })
-                }
-                mode="outlined"
-                keyboardType="numeric"
-                style={styles.input}
               />
 
               <TextInput
