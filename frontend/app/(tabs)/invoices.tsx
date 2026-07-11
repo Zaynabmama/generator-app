@@ -135,9 +135,16 @@ export default function InvoicesScreen() {
         <Card.Content>
           <View style={styles.cardHeader}>
             <View style={styles.invoiceInfo}>
-              <Text style={styles.customerName}>
-                {getCustomerName(item.customer_id)}
-              </Text>
+              <View style={styles.invoiceTopRow}>
+                <Text style={styles.customerName}>
+                  {getCustomerName(item.customer_id)}
+                </Text>
+                {item.invoice_number && (
+                  <Text style={styles.invoiceNumber}>
+                    #{item.invoice_number}
+                  </Text>
+                )}
+              </View>
               <Text style={styles.month}>الشهر: {item.month}</Text>
             </View>
             <Chip
@@ -199,6 +206,16 @@ export default function InvoicesScreen() {
               تسجيل دفعة
             </Button>
           )}
+
+          <Button
+            mode="outlined"
+            onPress={() => router.push(`/invoices/${item.id}`)}
+            style={styles.viewButton}
+            icon="eye"
+            textColor="#4CAF50"
+          >
+            عرض / إرسال WhatsApp
+          </Button>
         </Card.Content>
       </Card>
     </TouchableOpacity>
@@ -340,6 +357,21 @@ const styles = StyleSheet.create({
   invoiceInfo: {
     flex: 1,
   },
+  invoiceTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  invoiceNumber: {
+    fontSize: 14,
+    color: '#4CAF50',
+    fontWeight: 'bold',
+    backgroundColor: 'rgba(76, 175, 80, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
   customerName: {
     fontSize: 18,
     fontWeight: 'bold',
@@ -388,6 +420,10 @@ const styles = StyleSheet.create({
   },
   payButton: {
     marginTop: 12,
+  },
+  viewButton: {
+    marginTop: 8,
+    borderColor: '#4CAF50',
   },
   emptyContainer: {
     padding: 32,
