@@ -1,0 +1,35 @@
+{
+  "summary": "Backend-only re-verification after Metro cache clear. All 7 checklist items verified: (1) frontend/app/customers/add.tsx has ZERO amperage refs, (2) frontend/app/(tabs)/customers.tsx has ZERO amperage chip refs, (3) frontend/app/invoices/create.tsx has ZERO amperage refs, (4) backend/server.py Customer model has NO amperage field, (5) frontend served at http://localhost:3000 returns 200, (6) POST /api/customers succeeds without amperage (and silently ignores it if legacy client still sends it), (7) GET /api/generators returns exactly 3 seeded generators (مولد 150/250/300 kVA). Full pytest suite: 18/18 PASSED in 1.72s. No new issues found; carryover minor items from iteration_2 (extra='forbid', server-computed invoice total, hardcoded admin creds) remain optional hardening.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/customers", "issue": "Legacy 'amperage' field is silently dropped (Pydantic extra='ignore'). Consider extra='forbid' to return 422 for stale mobile clients."},
+      {"endpoint": "POST /api/invoices", "issue": "total_amount is client-supplied; should be computed server-side from consumption_charge (0.85/kWh) + previous_balance."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Main agent should self-verify in the running Expo web preview that the Add Customer form no longer shows 'عدد الأمبير' after Metro cache clear (backend is fully clean).",
+    "Optional: enforce extra='forbid' on CustomerCreate to surface stale clients explicitly instead of silently dropping amperage."
+  ],
+  "critical_code_review_comments": [
+    "server.py still uses Pydantic v1 .dict() and deprecated @app.on_event('shutdown'); migrate to .model_dump() and lifespan handlers.",
+    "Admin credentials (MS / Ms28796610**) hardcoded in server.py - move to env vars.",
+    "server.py is 683 lines; consider splitting routers per resource."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (18/18)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "Tests create TEST_ prefixed customers/readings/invoices and clean up via DELETE in try/finally. No permanent data added.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Amperage removal is fully complete on backend (grep on server.py = 0 hits) and in the three referenced frontend files (grep across frontend/app = 0 hits). 3 generators seeded. If user still sees amperage in the running app, it is exclusively a client-side cache issue on their device (not code); recommend hard-reload of Expo Go / clear browser cache. Backend pytest baseline: 18/18 green."
+}
