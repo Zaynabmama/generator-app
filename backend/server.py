@@ -100,6 +100,7 @@ class InvoiceCreate(BaseModel):
     reading_id: str
     month: str  # YYYY-MM
     consumption_charge: float  # رسم الاستهلاك
+    monthly_fee: float = 5.0  # رسم الاشتراك الشهري $5
     total_amount: float  # المبلغ الإجمالي
     previous_balance: float = 0.0  # الرصيد السابق
     amount_paid: float = 0.0  # المبلغ المدفوع
@@ -111,6 +112,7 @@ class Invoice(BaseModel):
     reading_id: str
     month: str
     consumption_charge: float
+    monthly_fee: float = 5.0
     total_amount: float
     previous_balance: float = 0.0
     amount_paid: float = 0.0
@@ -139,7 +141,6 @@ class Expense(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class PaymentCreate(BaseModel):
-    invoice_id: str
     amount: float
     payment_date: datetime = Field(default_factory=datetime.utcnow)
     notes: str = ""

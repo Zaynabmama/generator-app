@@ -36,6 +36,7 @@ export default function CreateInvoiceScreen() {
 
   // Pricing constants
   const CONSUMPTION_RATE = 0.85; // USD per kWh
+  const MONTHLY_FEE = 5.0; // Monthly subscription fee in USD
 
   useEffect(() => {
     fetchCustomers();
@@ -68,7 +69,7 @@ export default function CreateInvoiceScreen() {
     }
 
     const consumptionCharge = consumption * CONSUMPTION_RATE;
-    const totalAmount = consumptionCharge;
+    const totalAmount = consumptionCharge + MONTHLY_FEE;
 
     const now = new Date();
     const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -77,6 +78,7 @@ export default function CreateInvoiceScreen() {
       customer: selectedCustomer,
       consumption,
       consumptionCharge,
+      monthlyFee: MONTHLY_FEE,
       totalAmount,
       previousBalance: selectedCustomer.current_balance || 0,
       month,
@@ -105,6 +107,7 @@ export default function CreateInvoiceScreen() {
         reading_id: readingResponse.data.id,
         month: invoicePreview.month,
         consumption_charge: invoicePreview.consumptionCharge,
+        monthly_fee: invoicePreview.monthlyFee,
         total_amount: invoicePreview.totalAmount,
         previous_balance: invoicePreview.previousBalance,
         amount_paid: 0,
@@ -163,7 +166,7 @@ export default function CreateInvoiceScreen() {
               <>
                 <Text style={styles.infoLabel}>الرصيد المتبقي:</Text>
                 <Text style={[styles.infoValue, { color: '#F44336' }]}>
-                  {selectedCustomer.current_balance.toLocaleString()} دينار
+                  ${selectedCustomer.current_balance.toFixed(2)}
                 </Text>
               </>
             )}
@@ -271,6 +274,11 @@ export default function CreateInvoiceScreen() {
           <Text style={styles.previewValue}>
             {invoicePreview?.consumption.toLocaleString()} kWh × ${CONSUMPTION_RATE.toFixed(2)} ={' '}
             ${invoicePreview?.consumptionCharge.toFixed(2)}
+          </Text>
+
+          <Text style={styles.previewTitle}>رسم الاشتراك الشهري:</Text>
+          <Text style={styles.previewValue}>
+            ${invoicePreview?.monthlyFee.toFixed(2)}
           </Text>
 
           <View style={styles.divider} />

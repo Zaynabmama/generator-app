@@ -286,6 +286,207 @@ class TestFullFlow:
             api_client.delete(f"{API}/customers/{cust_id}")
 
 
+# ==================== Payment & Monthly Fee (Iteration 4) ====================
+
+class TestMonthlyFeeAndPayment:
+    """Iteration 4 focus:
+    1) Invoice.monthly_fee defaults to 5.0 and is added to total.
+    2) POST /api/invoices/{id}/payment MUST accept {amount, payment_date, notes}
+       WITHOUT invoice_id in body (invoice_id comes from URL path).
+    3) Partial / full payment status transitions.
+    """
+
+    def _create_customer(self, api_client, gen_id, prev_balance=0.0):
+        payload = {
+            "name": f"TEST_{uuid.uuid4().hex[:6]}",
+            "phone": "07711111111",
+            "address": "TEST",
+            "area": "المسعودية",
+            "meter_number": f"TEST-{uuid.uuid4().hex[:6]}",
+            "generator_id": gen_id,
+            "previous_balance": prev_balance,
+        }
+        r = api_client.post(f"{API}/customers", json=payload)
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    def _create_reading(self, api_client, cust_id, prev=0.0, curr=100.0):
+        r = api_client.post(f"{API}/readings", json={
+            "customer_id": cust_id,
+            "previous_reading": prev,
+            "current_reading": curr,
+            "reading_date": datetime.utcnow().isoformat(),
+        })
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    def _create_invoice(self, api_client, cust_id, reading_id,
+                        consumption_charge=85.0, monthly_fee=5.0,
+                        prev_balance=0.0, amount_paid=0.0):
+        total = consumption_charge + monthly_fee
+        payload = {
+            "customer_id": cust_id,
+            "reading_id": reading_id,
+            "month": datetime.utcnow().strftime("%Y-%m"),
+            "consumption_charge": consumption_charge,
+            "monthly_fee": monthly_fee,
+            "total_amount": total,
+            "previous_balance": prev_balance,
+            "amount_paid": amount_paid,
+        }
+        r = api_client.post(f"{API}/invoices", json=payload)
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def test_invoice_has_monthly_fee_field_default_5(self, api_client):
+        """Create invoice; verify monthly_fee=5.0 and total=consumption+5."""
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        cust_id = self._create_customer(api_client, gen_id)
+        try:
+            reading_id = self._create_reading(api_client, cust_id, 0.0, 100.0)
+            # 100 kWh * $0.85 = $85, + $5 monthly = $90
+            inv = self._create_invoice(
+                api_client, cust_id, reading_id,
+                consumption_charge=85.0, monthly_fee=5.0,
+            )
+            assert inv["consumption_charge"] == 85.0
+            assert inv["monthly_fee"] == 5.0, f"monthly_fee missing/wrong: {inv}"
+            assert inv["total_amount"] == 90.0
+            assert inv["remaining_amount"] == 90.0
+            assert inv["status"] == "unpaid"
+
+            # GET verification
+            gr = api_client.get(f"{API}/invoices/{inv['id']}")
+            assert gr.status_code == 200
+            got = gr.json()
+            assert got["monthly_fee"] == 5.0
+            assert got["total_amount"] == 90.0
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    def test_payment_without_invoice_id_in_body_succeeds(self, api_client):
+        """CRITICAL BUG FIX: PaymentCreate must not require invoice_id.
+        Frontend sends only {amount, payment_date, notes}.
+        """
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        cust_id = self._create_customer(api_client, gen_id)
+        try:
+            reading_id = self._create_reading(api_client, cust_id)
+            inv = self._create_invoice(api_client, cust_id, reading_id)
+            inv_id = inv["id"]
+
+            # Post payment WITHOUT invoice_id in body
+            pr = api_client.post(
+                f"{API}/invoices/{inv_id}/payment",
+                json={"amount": 10.0, "notes": "TEST payment"},
+            )
+            assert pr.status_code == 200, f"Payment failed: {pr.status_code} {pr.text}"
+            data = pr.json()
+            assert "new_remaining" in data
+            assert data["new_remaining"] == 80.0, data
+
+            # GET invoice verifies persistence
+            gi = api_client.get(f"{API}/invoices/{inv_id}").json()
+            assert gi["amount_paid"] == 10.0
+            assert gi["remaining_amount"] == 80.0
+            assert gi["status"] == "partial"
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    def test_payment_minimal_body_only_amount(self, api_client):
+        """Even more minimal: only {amount} - payment_date has default."""
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        cust_id = self._create_customer(api_client, gen_id)
+        try:
+            reading_id = self._create_reading(api_client, cust_id)
+            inv = self._create_invoice(api_client, cust_id, reading_id)
+            pr = api_client.post(
+                f"{API}/invoices/{inv['id']}/payment",
+                json={"amount": 10.0},
+            )
+            assert pr.status_code == 200, pr.text
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    def test_partial_payment_status(self, api_client):
+        """total=90, pay 30 -> remaining=60, status=partial."""
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        cust_id = self._create_customer(api_client, gen_id)
+        try:
+            reading_id = self._create_reading(api_client, cust_id)
+            inv = self._create_invoice(api_client, cust_id, reading_id)
+            pr = api_client.post(
+                f"{API}/invoices/{inv['id']}/payment",
+                json={"amount": 30.0},
+            )
+            assert pr.status_code == 200, pr.text
+            assert pr.json()["new_remaining"] == 60.0
+
+            gi = api_client.get(f"{API}/invoices/{inv['id']}").json()
+            assert gi["amount_paid"] == 30.0
+            assert gi["remaining_amount"] == 60.0
+            assert gi["status"] == "partial"
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    def test_full_payment_status(self, api_client):
+        """total=90, pay 90 -> remaining=0, status=paid."""
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        cust_id = self._create_customer(api_client, gen_id)
+        try:
+            reading_id = self._create_reading(api_client, cust_id)
+            inv = self._create_invoice(api_client, cust_id, reading_id)
+            pr = api_client.post(
+                f"{API}/invoices/{inv['id']}/payment",
+                json={"amount": 90.0},
+            )
+            assert pr.status_code == 200, pr.text
+            assert pr.json()["new_remaining"] == 0.0
+
+            gi = api_client.get(f"{API}/invoices/{inv['id']}").json()
+            assert gi["amount_paid"] == 90.0
+            assert gi["remaining_amount"] == 0.0
+            assert gi["status"] == "paid"
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    def test_multiple_incremental_payments(self, api_client):
+        """Pay 30, then 60 -> paid. Verifies cumulative amount_paid tracked."""
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        cust_id = self._create_customer(api_client, gen_id)
+        try:
+            reading_id = self._create_reading(api_client, cust_id)
+            inv = self._create_invoice(api_client, cust_id, reading_id)
+            iid = inv["id"]
+
+            p1 = api_client.post(f"{API}/invoices/{iid}/payment",
+                                 json={"amount": 30.0})
+            assert p1.status_code == 200
+            p2 = api_client.post(f"{API}/invoices/{iid}/payment",
+                                 json={"amount": 60.0})
+            assert p2.status_code == 200
+
+            gi = api_client.get(f"{API}/invoices/{iid}").json()
+            assert gi["amount_paid"] == 90.0
+            assert gi["remaining_amount"] == 0.0
+            assert gi["status"] == "paid"
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    def test_payment_on_nonexistent_invoice_returns_404(self, api_client):
+        # Well-formed but non-existent ObjectId
+        fake = "507f1f77bcf86cd799439011"
+        r = api_client.post(f"{API}/invoices/{fake}/payment",
+                            json={"amount": 5.0})
+        assert r.status_code == 404, r.text
+
+
 # ==================== Existing endpoints regression ====================
 
 class TestEndpointsHealth:

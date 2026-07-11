@@ -1,0 +1,37 @@
+{
+  "summary": "Backend-only verification of two changes: (1) PaymentCreate no longer requires invoice_id in body; (2) Invoice model has monthly_fee (default 5.0) added to total. Added 7 new tests in TestMonthlyFeeAndPayment. Full pytest suite: 25/25 PASSED in 4.01s. Verified: POST /api/invoices/{id}/payment succeeds with {amount} only and with {amount, notes} (no invoice_id); invoice created with consumption_charge=85 + monthly_fee=5 -> total=90 -> remaining=90; partial (pay 30 -> remaining 60, status=partial) and full (pay 90 -> remaining 0, status=paid) transitions work; cumulative payments (30+60) close invoice; 404 on non-existent invoice. All existing endpoints (auth, customers, generators, expenses, reports/debts, reports/financial, reports/consumption, readings, dashboard) remain green. No regressions.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/invoices", "issue": "total_amount is still client-supplied. Server should compute total = consumption_charge + monthly_fee + previous_balance to prevent client mismatch. Currently trusts the client value."},
+      {"endpoint": "POST /api/invoices/{id}/payment", "issue": "No validation that amount > 0. A payment with amount=0 or negative is silently accepted."},
+      {"endpoint": "POST /api/invoices/{id}/payment", "issue": "No guard against overpayment (amount > remaining). remaining_amount can go negative, though status still becomes 'paid'."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Main agent may self-verify the fixes are live by opening the mobile app -> invoice detail -> record payment (تسجيل دفعه). It should now succeed.",
+    "Optional hardening: compute total_amount server-side; reject amount<=0 in PaymentCreate; clamp/refuse overpayment."
+  ],
+  "critical_code_review_comments": [
+    "server.py still uses Pydantic v1 .dict() and deprecated @app.on_event('shutdown'); migrate to .model_dump() and lifespan handlers.",
+    "Admin credentials (MS / Ms28796610**) hardcoded in server.py - move to env vars.",
+    "server.py is 683 lines; consider splitting routers per resource.",
+    "add_payment endpoint has no upper-bound validation on payment amount (can overpay to negative remaining)."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (25/25)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "All new tests create TEST_ prefixed customers/readings/invoices and clean up via DELETE /api/customers/{id} in try/finally blocks. No permanent data added.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Both requested changes are verified working: (1) PaymentCreate model in server.py L143-146 has only {amount, payment_date, notes} — no invoice_id — and add_payment endpoint (L400) extracts invoice_id from URL path. (2) Invoice/InvoiceCreate now include monthly_fee: float = 5.0 (L103, L115). Total_amount is still client-supplied; frontend must compute total = consumption_charge + monthly_fee. Baseline: 25/25 pytest green. Known minor: total_amount not server-computed, no amount>0 or overpayment guards on payment endpoint."
+}
