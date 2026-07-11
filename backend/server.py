@@ -101,7 +101,6 @@ class InvoiceCreate(BaseModel):
     customer_id: str
     reading_id: str
     month: str  # YYYY-MM
-    amperage_charge: float  # رسم الأمبير
     consumption_charge: float  # رسم الاستهلاك
     total_amount: float  # المبلغ الإجمالي
     previous_balance: float = 0.0  # الرصيد السابق
@@ -113,7 +112,6 @@ class Invoice(BaseModel):
     customer_id: str
     reading_id: str
     month: str
-    amperage_charge: float
     consumption_charge: float
     total_amount: float
     previous_balance: float = 0.0

@@ -153,7 +153,7 @@ export default function InvoicesScreen() {
           <View style={styles.amountRow}>
             <Text style={styles.label}>المبلغ الإجمالي:</Text>
             <Text style={styles.amount}>
-              {item.total_amount.toLocaleString()} دينار
+              ${item.total_amount.toFixed(2)}
             </Text>
           </View>
 
@@ -161,7 +161,7 @@ export default function InvoicesScreen() {
             <View style={styles.amountRow}>
               <Text style={styles.label}>الرصيد السابق:</Text>
               <Text style={[styles.amount, { color: '#FF9800' }]}>
-                {item.previous_balance.toLocaleString()} دينار
+                ${item.previous_balance.toFixed(2)}
               </Text>
             </View>
           )}
@@ -169,7 +169,7 @@ export default function InvoicesScreen() {
           <View style={styles.amountRow}>
             <Text style={styles.label}>المدفوع:</Text>
             <Text style={[styles.amount, { color: '#4CAF50' }]}>
-              {item.amount_paid.toLocaleString()} دينار
+              ${item.amount_paid.toFixed(2)}
             </Text>
           </View>
 
@@ -177,7 +177,7 @@ export default function InvoicesScreen() {
             <View style={styles.amountRow}>
               <Text style={styles.label}>المتبقي:</Text>
               <Text style={[styles.amount, { color: '#F44336', fontWeight: 'bold' }]}>
-                {item.remaining_amount.toLocaleString()} دينار
+                ${item.remaining_amount.toFixed(2)}
               </Text>
             </View>
           )}
@@ -280,7 +280,7 @@ export default function InvoicesScreen() {
                   المشترك: {getCustomerName(selectedInvoice.customer_id)}
                 </Text>
                 <Text style={styles.dialogText}>
-                  المبلغ المتبقي: {selectedInvoice.remaining_amount.toLocaleString()} دينار
+                  المبلغ المتبقي: ${selectedInvoice.remaining_amount.toFixed(2)}
                 </Text>
                 <PaperInput
                   label="مبلغ الدفعة"

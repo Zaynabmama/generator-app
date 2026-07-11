@@ -115,14 +115,14 @@ export default function DashboardScreen() {
                 <View style={styles.financeRow}>
                   <Text style={styles.financeLabel}>إيرادات الشهر الحالي:</Text>
                   <Text style={[styles.financeValue, { color: '#4CAF50' }]}>
-                    {stats?.month_revenue?.toLocaleString() || 0} دينار
+                    ${stats?.month_revenue?.toFixed(2) || '0.00'}
                   </Text>
                 </View>
                 
                 <View style={styles.financeRow}>
                   <Text style={styles.financeLabel}>إجمالي الديون:</Text>
                   <Text style={[styles.financeValue, { color: '#F44336' }]}>
-                    {stats?.total_debt?.toLocaleString() || 0} دينار
+                    ${stats?.total_debt?.toFixed(2) || '0.00'}
                   </Text>
                 </View>
                 

@@ -35,8 +35,7 @@ export default function CreateInvoiceScreen() {
   const [invoicePreview, setInvoicePreview] = useState<any>(null);
 
   // Pricing constants
-  const AMPERAGE_RATE = 5000; // IQD per ampere
-  const CONSUMPTION_RATE = 150; // IQD per kWh
+  const CONSUMPTION_RATE = 0.15; // USD per kWh
 
   useEffect(() => {
     fetchCustomers();
@@ -68,9 +67,8 @@ export default function CreateInvoiceScreen() {
       return;
     }
 
-    const amperageCharge = selectedCustomer.amperage * AMPERAGE_RATE;
     const consumptionCharge = consumption * CONSUMPTION_RATE;
-    const totalAmount = amperageCharge + consumptionCharge;
+    const totalAmount = consumptionCharge;
 
     const now = new Date();
     const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -78,7 +76,6 @@ export default function CreateInvoiceScreen() {
     setInvoicePreview({
       customer: selectedCustomer,
       consumption,
-      amperageCharge,
       consumptionCharge,
       totalAmount,
       previousBalance: selectedCustomer.current_balance || 0,
@@ -107,7 +104,6 @@ export default function CreateInvoiceScreen() {
         customer_id: selectedCustomer.id,
         reading_id: readingResponse.data.id,
         month: invoicePreview.month,
-        amperage_charge: invoicePreview.amperageCharge,
         consumption_charge: invoicePreview.consumptionCharge,
         total_amount: invoicePreview.totalAmount,
         previous_balance: invoicePreview.previousBalance,
@@ -274,36 +270,29 @@ export default function CreateInvoiceScreen() {
 
           <View style={styles.divider} />
 
-          <Text style={styles.previewTitle}>رسم الأمبير:</Text>
-          <Text style={styles.previewValue}>
-            {invoicePreview?.customer.amperage} أمبير × {AMPERAGE_RATE.toLocaleString()} ={' '}
-            {invoicePreview?.amperageCharge.toLocaleString()} دينار
-          </Text>
-
           <Text style={styles.previewTitle}>رسم الاستهلاك:</Text>
           <Text style={styles.previewValue}>
-            {invoicePreview?.consumption.toLocaleString()} kWh × {CONSUMPTION_RATE.toLocaleString()} ={' '}
-            {invoicePreview?.consumptionCharge.toLocaleString()} دينار
+            {invoicePreview?.consumption.toLocaleString()} kWh × ${CONSUMPTION_RATE.toFixed(2)} ={' '}
+            ${invoicePreview?.consumptionCharge.toFixed(2)}
           </Text>
 
           <View style={styles.divider} />
 
           <Text style={styles.previewTitle}>المبلغ الإجمالي:</Text>
           <Text style={[styles.previewValue, styles.totalAmount]}>
-            {invoicePreview?.totalAmount.toLocaleString()} دينار
+            ${invoicePreview?.totalAmount.toFixed(2)}
           </Text>
 
           {invoicePreview?.previousBalance > 0 && (
             <>
               <Text style={styles.previewTitle}>الرصيد السابق:</Text>
               <Text style={[styles.previewValue, { color: '#FF9800' }]}>
-                {invoicePreview?.previousBalance.toLocaleString()} دينار
+                ${invoicePreview?.previousBalance.toFixed(2)}
               </Text>
 
               <Text style={styles.previewTitle}>الإجمالي المطلوب:</Text>
               <Text style={[styles.previewValue, styles.totalAmount]}>
-                {(invoicePreview?.totalAmount + invoicePreview?.previousBalance).toLocaleString()}{' '}
-                دينار
+                ${(invoicePreview?.totalAmount + invoicePreview?.previousBalance).toFixed(2)}
               </Text>
             </>
           )}

@@ -65,7 +65,7 @@ export default function ReportsScreen() {
               <View style={styles.summaryText}>
                 <Title style={styles.summaryTitle}>إجمالي الديون</Title>
                 <Text style={styles.summaryAmount}>
-                  {debtReport.total_debt?.toLocaleString() || 0} دينار
+                  ${debtReport.total_debt?.toFixed(2) || '0.00'}
                 </Text>
               </View>
             </View>
@@ -85,7 +85,7 @@ export default function ReportsScreen() {
                   <DataTable.Row key={area}>
                     <DataTable.Cell>{area}</DataTable.Cell>
                     <DataTable.Cell numeric>
-                      {amount.toLocaleString()} د
+                      ${amount.toFixed(2)}
                     </DataTable.Cell>
                   </DataTable.Row>
                 ))}
@@ -107,7 +107,7 @@ export default function ReportsScreen() {
                   </View>
                   <View style={styles.debtorAmount}>
                     <Text style={styles.debtAmount}>
-                      {debtor.debt_amount.toLocaleString()} د
+                      ${debtor.debt_amount.toFixed(2)}
                     </Text>
                     {debtor.is_overdue && (
                       <Text style={styles.overdueTag}>متأخر</Text>
@@ -142,7 +142,7 @@ export default function ReportsScreen() {
                     },
                   ]}
                 >
-                  {financialReport.net_profit?.toLocaleString() || 0} دينار
+                  ${financialReport.net_profit?.toFixed(2) || '0.00'}
                 </Text>
               </View>
             </View>
@@ -158,7 +158,7 @@ export default function ReportsScreen() {
                 <MaterialCommunityIcons name="cash-plus" size={24} color="#4CAF50" />
                 <Text style={styles.financeLabel}>الإيرادات</Text>
                 <Text style={[styles.financeAmount, { color: '#4CAF50' }]}>
-                  {financialReport.total_revenue?.toLocaleString() || 0} د
+                  ${financialReport.total_revenue?.toFixed(2) || '0.00'}
                 </Text>
               </View>
 
@@ -166,7 +166,7 @@ export default function ReportsScreen() {
                 <MaterialCommunityIcons name="cash-minus" size={24} color="#F44336" />
                 <Text style={styles.financeLabel}>المصروفات</Text>
                 <Text style={[styles.financeAmount, { color: '#F44336' }]}>
-                  {financialReport.total_expenses?.toLocaleString() || 0} د
+                  ${financialReport.total_expenses?.toFixed(2) || '0.00'}
                 </Text>
               </View>
             </View>
@@ -194,7 +194,7 @@ export default function ReportsScreen() {
                             : 'أخرى'}
                         </DataTable.Cell>
                         <DataTable.Cell numeric>
-                          {amount.toLocaleString()} د
+                          ${amount.toFixed(2)}
                         </DataTable.Cell>
                       </DataTable.Row>
                     )

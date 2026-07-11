@@ -137,7 +137,7 @@ export default function CustomersScreen() {
           <View style={styles.balanceContainer}>
             <Text style={styles.balanceLabel}>الرصيد المتبقي:</Text>
             <Text style={styles.balanceAmount}>
-              {item.current_balance.toLocaleString()} دينار
+              ${item.current_balance.toFixed(2)}
             </Text>
           </View>
         )}
