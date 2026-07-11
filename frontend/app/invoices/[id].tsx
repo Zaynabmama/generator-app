@@ -1,0 +1,761 @@
+import React, { useEffect, useState } from 'react';
+import {
+  View,
+  StyleSheet,
+  ScrollView,
+  Alert,
+  Linking,
+  Platform,
+} from 'react-native';
+import {
+  Text,
+  Button,
+  Card,
+  ActivityIndicator,
+  IconButton,
+} from 'react-native-paper';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import { invoicesAPI, customersAPI, readingsAPI, generatorsAPI } from '@/src/services/api';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+
+export default function InvoiceDetailScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [invoice, setInvoice] = useState<any>(null);
+  const [customer, setCustomer] = useState<any>(null);
+  const [reading, setReading] = useState<any>(null);
+  const [generator, setGenerator] = useState<any>(null);
+
+  const BUSINESS_INFO = {
+    name: 'أبو عباس للإنارة',
+    phones: '76/942194 - 70/572160',
+    kwh_price: 0.85,
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, [id]);
+
+  const fetchData = async () => {
+    try {
+      const invoiceRes = await invoicesAPI.getOne(id!);
+      setInvoice(invoiceRes.data);
+
+      const [customerRes, readingRes] = await Promise.all([
+        customersAPI.getOne(invoiceRes.data.customer_id),
+        readingsAPI.getOne(invoiceRes.data.reading_id),
+      ]);
+      setCustomer(customerRes.data);
+      setReading(readingRes.data);
+
+      if (customerRes.data.generator_id) {
+        try {
+          const genRes = await generatorsAPI.getOne(customerRes.data.generator_id);
+          setGenerator(genRes.data);
+        } catch (e) {
+          console.log('Generator fetch skipped');
+        }
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      Alert.alert('خطأ', 'حدث خطأ أثناء تحميل الفاتورة');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const generateInvoiceHTML = () => {
+    if (!invoice || !customer || !reading) return '';
+
+    const consumption = reading.current_reading - reading.previous_reading;
+    const monthName = invoice.month.split('-').reverse().join('/');
+    const totalDue = invoice.total_amount + invoice.previous_balance;
+
+    return `
+      <!DOCTYPE html>
+      <html dir="rtl" lang="ar">
+      <head>
+        <meta charset="utf-8">
+        <style>
+          @page { size: A5; margin: 10mm; }
+          body {
+            font-family: 'Arial', 'Tahoma', sans-serif;
+            direction: rtl;
+            margin: 0;
+            padding: 0;
+            color: #000;
+          }
+          .invoice {
+            border: 3px solid #000;
+            padding: 0;
+            width: 100%;
+            max-width: 500px;
+            margin: 0 auto;
+          }
+          .header {
+            display: flex;
+            border-bottom: 2px solid #000;
+          }
+          .header-right {
+            width: 50%;
+            padding: 8px;
+            text-align: center;
+            border-left: 2px solid #000;
+          }
+          .header-center {
+            width: 30%;
+            padding: 8px;
+            text-align: center;
+            border-left: 2px solid #000;
+          }
+          .header-left {
+            width: 20%;
+            padding: 8px;
+            text-align: center;
+          }
+          .business-name {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 4px;
+          }
+          .area-name {
+            font-size: 14px;
+            margin-bottom: 4px;
+          }
+          .phones {
+            font-size: 12px;
+          }
+          .invoice-num-title {
+            font-size: 20px;
+            font-weight: bold;
+          }
+          .invoice-num {
+            font-size: 22px;
+            color: #c00;
+            font-weight: bold;
+            border: 2px solid #c00;
+            padding: 4px 8px;
+            display: inline-block;
+            margin-top: 4px;
+          }
+          .receipt-label {
+            font-size: 24px;
+            font-weight: bold;
+          }
+          .content {
+            display: flex;
+          }
+          .left-col {
+            width: 30%;
+            border-left: 2px solid #000;
+          }
+          .right-col {
+            width: 70%;
+          }
+          .row {
+            display: flex;
+            border-bottom: 2px solid #000;
+            min-height: 40px;
+          }
+          .row:last-child {
+            border-bottom: none;
+          }
+          .cell-label {
+            padding: 8px;
+            font-weight: bold;
+            font-size: 14px;
+            border-left: 2px solid #000;
+            min-width: 100px;
+            display: flex;
+            align-items: center;
+          }
+          .cell-value {
+            padding: 8px;
+            font-size: 14px;
+            flex: 1;
+            display: flex;
+            align-items: center;
+          }
+          .left-row {
+            padding: 8px;
+            border-bottom: 2px solid #000;
+            text-align: center;
+            min-height: 35px;
+          }
+          .left-row:last-child {
+            border-bottom: none;
+          }
+          .left-label {
+            font-size: 12px;
+            font-weight: bold;
+          }
+          .left-value {
+            font-size: 18px;
+            font-weight: bold;
+            margin-top: 4px;
+          }
+          .footer {
+            padding: 8px;
+            border-top: 2px solid #000;
+            text-align: center;
+            font-size: 12px;
+          }
+          .split-row {
+            display: flex;
+          }
+          .split-cell {
+            flex: 1;
+            padding: 8px;
+            border-left: 2px solid #000;
+            text-align: center;
+          }
+          .split-cell:last-child {
+            border-left: none;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="invoice">
+          <!-- Header -->
+          <div class="header">
+            <div class="header-right">
+              <div class="business-name">${BUSINESS_INFO.name}</div>
+              <div class="area-name">اشتراك ${customer.area}</div>
+              <div class="phones">${BUSINESS_INFO.phones}</div>
+            </div>
+            <div class="header-center">
+              <div class="receipt-label">إيصال</div>
+              <div class="invoice-num">${invoice.invoice_number || '00000'}</div>
+            </div>
+            <div class="header-left">
+              <div class="left-label">العداد الحالي</div>
+              <div class="left-value">${reading.current_reading}</div>
+            </div>
+          </div>
+
+          <!-- Content -->
+          <div class="content">
+            <div class="right-col">
+              <div class="row">
+                <div class="cell-label">اسم المشترك:</div>
+                <div class="cell-value">${customer.name}</div>
+              </div>
+              <div class="row">
+                <div class="cell-label">المبلغ المتوجب:</div>
+                <div class="cell-value">$${invoice.total_amount.toFixed(2)}</div>
+                <div class="cell-label" style="border-right: 2px solid #000;">قديم:</div>
+                <div class="cell-value">$${invoice.previous_balance.toFixed(2)}</div>
+              </div>
+              <div class="row">
+                <div class="cell-label">المجموع:</div>
+                <div class="cell-value">$${totalDue.toFixed(2)}</div>
+              </div>
+              <div class="row">
+                <div class="cell-label">واصل:</div>
+                <div class="cell-value">$${invoice.amount_paid.toFixed(2)}</div>
+                <div class="cell-label" style="border-right: 2px solid #000;">في:</div>
+                <div class="cell-value">${new Date().toLocaleDateString('en-GB')}</div>
+              </div>
+              <div class="row">
+                <div class="cell-label">باقي:</div>
+                <div class="cell-value">$${invoice.remaining_amount.toFixed(2)}</div>
+              </div>
+              <div class="row">
+                <div class="cell-label">وذلك عن شهر:</div>
+                <div class="cell-value">${monthName}</div>
+              </div>
+            </div>
+
+            <div class="left-col">
+              <div class="left-row">
+                <div class="left-label">العداد السابق</div>
+                <div class="left-value">${reading.previous_reading}</div>
+              </div>
+              <div class="left-row">
+                <div class="left-label">حجم المصروف</div>
+                <div class="left-value">${consumption}</div>
+              </div>
+              <div class="left-row">
+                <div class="left-label">سعر ك.وات</div>
+                <div class="left-value">$${BUSINESS_INFO.kwh_price}</div>
+              </div>
+              <div class="left-row">
+                <div class="left-label">اشتراك شهري</div>
+                <div class="left-value">$${invoice.monthly_fee.toFixed(2)}</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="footer">
+            تدفع في المحل من 1 لغاية 5 الشهر بفصل الاشتراك بعد هذا التاريخ
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  };
+
+  const generatePDF = async () => {
+    try {
+      setSending(true);
+      const html = generateInvoiceHTML();
+      const { uri } = await Print.printToFileAsync({
+        html,
+        base64: false,
+      });
+      return uri;
+    } catch (error) {
+      console.error('PDF error:', error);
+      Alert.alert('خطأ', 'حدث خطأ أثناء إنشاء PDF');
+      return null;
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handlePrintPDF = async () => {
+    try {
+      setSending(true);
+      const html = generateInvoiceHTML();
+      await Print.printAsync({ html });
+    } catch (error) {
+      console.error('Print error:', error);
+      Alert.alert('خطأ', 'حدث خطأ أثناء الطباعة');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleSharePDF = async () => {
+    const uri = await generatePDF();
+    if (uri) {
+      try {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'مشاركة الفاتورة',
+        });
+      } catch (error) {
+        console.error('Share error:', error);
+      }
+    }
+  };
+
+  const formatPhoneForWhatsApp = (phone: string) => {
+    // Remove all non-digits
+    let cleaned = phone.replace(/\D/g, '');
+    // Remove leading 0
+    if (cleaned.startsWith('0')) {
+      cleaned = cleaned.substring(1);
+    }
+    // Add country code if not present (Iraq: 964, Lebanon: 961)
+    // For Lebanon numbers starting with 3,70,71,76,78,79,81
+    if (!cleaned.startsWith('961') && !cleaned.startsWith('964')) {
+      cleaned = '961' + cleaned; // Default to Lebanon
+    }
+    return cleaned;
+  };
+
+  const handleWhatsAppSend = async () => {
+    if (!customer || !invoice) return;
+
+    setSending(true);
+    try {
+      // First generate PDF
+      const uri = await generatePDF();
+      
+      const phone = formatPhoneForWhatsApp(customer.phone);
+      const consumption = reading.current_reading - reading.previous_reading;
+      const monthName = invoice.month.split('-').reverse().join('/');
+      const totalDue = invoice.total_amount + invoice.previous_balance;
+
+      const message = 
+`*${BUSINESS_INFO.name}*
+اشتراك ${customer.area}
+${BUSINESS_INFO.phones}
+
+*إيصال رقم: ${invoice.invoice_number || '00000'}*
+
+اسم المشترك: ${customer.name}
+شهر: ${monthName}
+
+━━━━━━━━━━━━━━━
+العداد السابق: ${reading.previous_reading}
+العداد الحالي: ${reading.current_reading}
+حجم المصروف: ${consumption} kWh
+سعر ك.وات: $${BUSINESS_INFO.kwh_price}
+اشتراك شهري: $${invoice.monthly_fee.toFixed(2)}
+━━━━━━━━━━━━━━━
+
+المبلغ المتوجب: $${invoice.total_amount.toFixed(2)}
+الرصيد السابق: $${invoice.previous_balance.toFixed(2)}
+*المجموع: $${totalDue.toFixed(2)}*
+واصل: $${invoice.amount_paid.toFixed(2)}
+*الباقي: $${invoice.remaining_amount.toFixed(2)}*
+
+تدفع في المحل من 1 لغاية 5 الشهر`;
+
+      const encodedMessage = encodeURIComponent(message);
+      const whatsappUrl = `whatsapp://send?phone=${phone}&text=${encodedMessage}`;
+      const webUrl = `https://wa.me/${phone}?text=${encodedMessage}`;
+
+      // Try to open WhatsApp app first
+      const canOpen = await Linking.canOpenURL(whatsappUrl);
+      if (canOpen) {
+        await Linking.openURL(whatsappUrl);
+      } else {
+        await Linking.openURL(webUrl);
+      }
+
+      // Also share PDF
+      if (uri && await Sharing.isAvailableAsync()) {
+        setTimeout(async () => {
+          await Sharing.shareAsync(uri, {
+            mimeType: 'application/pdf',
+            dialogTitle: 'إرسال الفاتورة PDF',
+          });
+        }, 1500);
+      }
+    } catch (error) {
+      console.error('WhatsApp error:', error);
+      Alert.alert('خطأ', 'حدث خطأ أثناء إرسال WhatsApp');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#4CAF50" />
+          <Text style={styles.loadingText}>جاري التحميل...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!invoice || !customer || !reading) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>لم يتم العثور على الفاتورة</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const consumption = reading.current_reading - reading.previous_reading;
+  const monthName = invoice.month.split('-').reverse().join('/');
+  const totalDue = invoice.total_amount + invoice.previous_balance;
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <View style={styles.header}>
+        <IconButton
+          icon="arrow-right"
+          iconColor="#4CAF50"
+          size={24}
+          onPress={() => router.back()}
+        />
+        <Text style={styles.headerTitle}>تفاصيل الفاتورة</Text>
+        <View style={{ width: 48 }} />
+      </View>
+
+      <ScrollView style={styles.scrollView}>
+        {/* Invoice Preview */}
+        <Card style={styles.card}>
+          <Card.Content style={styles.invoiceContainer}>
+            <View style={styles.businessHeader}>
+              <View style={styles.headerBox}>
+                <Text style={styles.businessName}>{BUSINESS_INFO.name}</Text>
+                <Text style={styles.areaName}>اشتراك {customer.area}</Text>
+                <Text style={styles.phones}>{BUSINESS_INFO.phones}</Text>
+              </View>
+              <View style={styles.receiptBox}>
+                <Text style={styles.receiptLabel}>إيصال</Text>
+                <View style={styles.invoiceNumBox}>
+                  <Text style={styles.invoiceNum}>{invoice.invoice_number || '00000'}</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.metersRow}>
+              <View style={styles.meterCol}>
+                <Text style={styles.meterLabel}>العداد السابق</Text>
+                <Text style={styles.meterValue}>{reading.previous_reading}</Text>
+              </View>
+              <View style={styles.meterCol}>
+                <Text style={styles.meterLabel}>العداد الحالي</Text>
+                <Text style={styles.meterValue}>{reading.current_reading}</Text>
+              </View>
+              <View style={styles.meterCol}>
+                <Text style={styles.meterLabel}>حجم المصروف</Text>
+                <Text style={styles.meterValue}>{consumption}</Text>
+              </View>
+            </View>
+
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>اسم المشترك:</Text>
+              <Text style={styles.detailValue}>{customer.name}</Text>
+            </View>
+
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>شهر:</Text>
+              <Text style={styles.detailValue}>{monthName}</Text>
+            </View>
+
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>سعر ك.وات:</Text>
+              <Text style={styles.detailValue}>${BUSINESS_INFO.kwh_price}</Text>
+            </View>
+
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>اشتراك شهري:</Text>
+              <Text style={styles.detailValue}>${invoice.monthly_fee.toFixed(2)}</Text>
+            </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>المبلغ المتوجب:</Text>
+              <Text style={styles.detailValue}>${invoice.total_amount.toFixed(2)}</Text>
+            </View>
+
+            {invoice.previous_balance > 0 && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>الرصيد السابق:</Text>
+                <Text style={[styles.detailValue, { color: '#FF9800' }]}>
+                  ${invoice.previous_balance.toFixed(2)}
+                </Text>
+              </View>
+            )}
+
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>المجموع:</Text>
+              <Text style={[styles.detailValue, styles.total]}>
+                ${totalDue.toFixed(2)}
+              </Text>
+            </View>
+
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>واصل:</Text>
+              <Text style={[styles.detailValue, { color: '#4CAF50' }]}>
+                ${invoice.amount_paid.toFixed(2)}
+              </Text>
+            </View>
+
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>الباقي:</Text>
+              <Text style={[styles.detailValue, styles.remaining]}>
+                ${invoice.remaining_amount.toFixed(2)}
+              </Text>
+            </View>
+          </Card.Content>
+        </Card>
+
+        {/* Action Buttons */}
+        <View style={styles.buttonsContainer}>
+          <Button
+            mode="contained"
+            icon="whatsapp"
+            onPress={handleWhatsAppSend}
+            loading={sending}
+            disabled={sending}
+            style={[styles.actionButton, { backgroundColor: '#25D366' }]}
+            contentStyle={styles.buttonContent}
+            testID="send-whatsapp-btn"
+          >
+            إرسال عبر WhatsApp
+          </Button>
+
+          <Button
+            mode="contained"
+            icon="file-pdf-box"
+            onPress={handleSharePDF}
+            loading={sending}
+            disabled={sending}
+            style={[styles.actionButton, { backgroundColor: '#E53935' }]}
+            contentStyle={styles.buttonContent}
+            testID="share-pdf-btn"
+          >
+            مشاركة PDF
+          </Button>
+
+          <Button
+            mode="contained"
+            icon="printer"
+            onPress={handlePrintPDF}
+            loading={sending}
+            disabled={sending}
+            style={styles.actionButton}
+            contentStyle={styles.buttonContent}
+            testID="print-btn"
+          >
+            طباعة
+          </Button>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#121212',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 8,
+    backgroundColor: '#1E1E1E',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#fff',
+    marginTop: 16,
+  },
+  card: {
+    margin: 16,
+    backgroundColor: '#fff',
+  },
+  invoiceContainer: {
+    padding: 8,
+  },
+  businessHeader: {
+    flexDirection: 'row',
+    borderBottomWidth: 2,
+    borderBottomColor: '#000',
+    paddingBottom: 12,
+    marginBottom: 12,
+  },
+  headerBox: {
+    flex: 1,
+    alignItems: 'center',
+    borderLeftWidth: 2,
+    borderLeftColor: '#000',
+    paddingHorizontal: 8,
+  },
+  businessName: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#000',
+  },
+  areaName: {
+    fontSize: 14,
+    color: '#000',
+    marginTop: 4,
+  },
+  phones: {
+    fontSize: 12,
+    color: '#000',
+    marginTop: 4,
+  },
+  receiptBox: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  receiptLabel: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#000',
+    marginBottom: 8,
+  },
+  invoiceNumBox: {
+    borderWidth: 2,
+    borderColor: '#c00',
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+  },
+  invoiceNum: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#c00',
+  },
+  metersRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 2,
+    borderBottomColor: '#000',
+    paddingBottom: 12,
+    marginBottom: 12,
+  },
+  meterCol: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    borderLeftWidth: 1,
+    borderLeftColor: '#666',
+  },
+  meterLabel: {
+    fontSize: 11,
+    color: '#000',
+    fontWeight: 'bold',
+  },
+  meterValue: {
+    fontSize: 18,
+    color: '#000',
+    fontWeight: 'bold',
+    marginTop: 4,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ccc',
+  },
+  detailLabel: {
+    fontSize: 14,
+    color: '#000',
+    fontWeight: '600',
+  },
+  detailValue: {
+    fontSize: 14,
+    color: '#000',
+    fontWeight: 'bold',
+  },
+  total: {
+    fontSize: 18,
+    color: '#c00',
+  },
+  remaining: {
+    fontSize: 18,
+    color: '#c00',
+    fontWeight: 'bold',
+  },
+  divider: {
+    height: 2,
+    backgroundColor: '#000',
+    marginVertical: 8,
+  },
+  buttonsContainer: {
+    padding: 16,
+    gap: 12,
+  },
+  actionButton: {
+    marginBottom: 4,
+  },
+  buttonContent: {
+    paddingVertical: 8,
+  },
+});

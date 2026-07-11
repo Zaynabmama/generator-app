@@ -632,6 +632,151 @@ class TestLatestReading:
             api_client.delete(f"{API}/customers/{cust_id}")
 
 
+# ==================== Iteration 6: Invoice Number auto-generation ====================
+
+class TestInvoiceNumber:
+    """Verify Invoice.invoice_number is auto-generated (5-digit, sequential)."""
+
+    def _create_customer(self, api_client):
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        payload = {
+            "name": f"TEST_{uuid.uuid4().hex[:6]}",
+            "phone": "07733333333",
+            "address": "TEST invoice number",
+            "area": "المسعودية",
+            "meter_number": f"TEST-{uuid.uuid4().hex[:6]}",
+            "generator_id": gen_id,
+            "previous_balance": 0.0,
+        }
+        r = api_client.post(f"{API}/customers", json=payload)
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    def _create_reading(self, api_client, cust_id):
+        r = api_client.post(f"{API}/readings", json={
+            "customer_id": cust_id,
+            "previous_reading": 0.0,
+            "current_reading": 100.0,
+            "reading_date": datetime.utcnow().isoformat(),
+        })
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    def _create_invoice(self, api_client, cust_id, reading_id):
+        payload = {
+            "customer_id": cust_id,
+            "reading_id": reading_id,
+            "month": datetime.utcnow().strftime("%Y-%m"),
+            "consumption_charge": 85.0,
+            "monthly_fee": 5.0,
+            "total_amount": 90.0,
+            "previous_balance": 0.0,
+            "amount_paid": 0.0,
+        }
+        r = api_client.post(f"{API}/invoices", json=payload)
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def test_new_invoice_has_5digit_invoice_number(self, api_client):
+        cust_id = self._create_customer(api_client)
+        try:
+            reading_id = self._create_reading(api_client, cust_id)
+            inv = self._create_invoice(api_client, cust_id, reading_id)
+            assert "invoice_number" in inv, f"invoice_number missing: {inv}"
+            assert inv["invoice_number"] is not None
+            num_str = inv["invoice_number"]
+            assert isinstance(num_str, str), f"Expected string, got {type(num_str)}"
+            assert len(num_str) == 5, f"Expected 5-digit, got '{num_str}'"
+            assert num_str.isdigit(), f"Not all digits: '{num_str}'"
+            # GET verification
+            gr = api_client.get(f"{API}/invoices/{inv['id']}")
+            assert gr.status_code == 200
+            assert gr.json()["invoice_number"] == num_str
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    def test_invoice_numbers_are_sequential(self, api_client):
+        """Two new invoices back-to-back: second should be first + 1."""
+        cust_id = self._create_customer(api_client)
+        try:
+            r1 = self._create_reading(api_client, cust_id)
+            inv1 = self._create_invoice(api_client, cust_id, r1)
+
+            # Second invoice on same customer
+            r2 = api_client.post(f"{API}/readings", json={
+                "customer_id": cust_id,
+                "previous_reading": 100.0,
+                "current_reading": 200.0,
+                "reading_date": datetime.utcnow().isoformat(),
+            })
+            assert r2.status_code == 200, r2.text
+            inv2 = self._create_invoice(api_client, cust_id, r2.json()["id"])
+
+            n1 = int(inv1["invoice_number"])
+            n2 = int(inv2["invoice_number"])
+            assert n2 == n1 + 1, f"Not sequential: {n1} -> {n2}"
+            assert len(inv2["invoice_number"]) == 5
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    def test_get_invoices_list_contains_invoice_number(self, api_client):
+        cust_id = self._create_customer(api_client)
+        try:
+            reading_id = self._create_reading(api_client, cust_id)
+            self._create_invoice(api_client, cust_id, reading_id)
+
+            r = api_client.get(f"{API}/invoices")
+            assert r.status_code == 200
+            invoices = r.json()
+            assert isinstance(invoices, list)
+            assert len(invoices) > 0
+            for inv in invoices:
+                assert "invoice_number" in inv, f"invoice_number missing in list item: {inv}"
+                # Note: existing migrated invoices should have populated numbers.
+                # Newly created ones must have 5-digit strings.
+                if inv["invoice_number"] is not None:
+                    assert isinstance(inv["invoice_number"], str)
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    def test_new_invoice_number_greater_than_or_equal_01710(self, api_client):
+        """Per PRD: migration set existing invoices starting at 01710,
+        so next new invoice should be > 01710."""
+        cust_id = self._create_customer(api_client)
+        try:
+            reading_id = self._create_reading(api_client, cust_id)
+            inv = self._create_invoice(api_client, cust_id, reading_id)
+            n = int(inv["invoice_number"])
+            assert n >= 1710, f"Expected invoice_number >= 01710, got {inv['invoice_number']}"
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    def test_invoice_monthly_fee_default_still_5(self, api_client):
+        """Regression: monthly_fee=5.0 default still works alongside invoice_number."""
+        cust_id = self._create_customer(api_client)
+        try:
+            reading_id = self._create_reading(api_client, cust_id)
+            # Do not send monthly_fee - server should default to 5.0
+            payload = {
+                "customer_id": cust_id,
+                "reading_id": reading_id,
+                "month": datetime.utcnow().strftime("%Y-%m"),
+                "consumption_charge": 85.0,
+                "total_amount": 90.0,
+                "previous_balance": 0.0,
+                "amount_paid": 0.0,
+            }
+            r = api_client.post(f"{API}/invoices", json=payload)
+            assert r.status_code == 200, r.text
+            inv = r.json()
+            assert inv["monthly_fee"] == 5.0
+            assert inv["invoice_number"] is not None
+            assert len(inv["invoice_number"]) == 5
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+
 # ==================== Existing endpoints regression ====================
 
 class TestEndpointsHealth:

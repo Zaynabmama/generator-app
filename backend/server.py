@@ -108,6 +108,7 @@ class InvoiceCreate(BaseModel):
 
 class Invoice(BaseModel):
     id: Optional[str] = None
+    invoice_number: Optional[str] = None  # رقم الإيصال
     customer_id: str
     reading_id: str
     month: str
@@ -116,9 +117,9 @@ class Invoice(BaseModel):
     total_amount: float
     previous_balance: float = 0.0
     amount_paid: float = 0.0
-    remaining_amount: float = 0.0  # المبلغ المتبقي
-    status: str = "unpaid"  # paid, unpaid, partial
-    due_date: datetime  # تاريخ الاستحقاق
+    remaining_amount: float = 0.0
+    status: str = "unpaid"
+    due_date: datetime
     is_overdue: bool = False
     notes: str = ""
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -347,6 +348,18 @@ async def get_reading(reading_id: str):
 @api_router.post("/invoices", response_model=Invoice)
 async def create_invoice(invoice_data: InvoiceCreate):
     invoice_dict = invoice_data.dict()
+    
+    # Auto-generate invoice number (5-digit sequential)
+    last_invoice = await db.invoices.find_one(sort=[('created_at', -1)])
+    if last_invoice and last_invoice.get('invoice_number'):
+        try:
+            last_num = int(last_invoice['invoice_number'])
+            new_num = last_num + 1
+        except (ValueError, TypeError):
+            new_num = 1710
+    else:
+        new_num = 1710
+    invoice_dict['invoice_number'] = str(new_num).zfill(5)
     
     # Calculate remaining amount
     total_with_previous = invoice_data.total_amount + invoice_data.previous_balance

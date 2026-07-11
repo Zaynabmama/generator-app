@@ -1,0 +1,41 @@
+{
+  "summary": "Backend-only verification of the NEW Invoice.invoice_number field (auto-generated 5-digit sequential). Added TestInvoiceNumber class (5 tests) to /app/backend/tests/backend_test.py. Full pytest suite: 37/37 PASSED in 6.99s. Verified: (1) POST /api/invoices auto-generates a 5-digit string invoice_number; (2) sequential creation increments by exactly 1; (3) GET /api/invoices returns invoice_number in each list item; (4) new invoice numbers are >= 01710 (matches migration baseline described in PRD); (5) monthly_fee=5.0 default coexists with invoice_number. Regression: all existing endpoints (auth, customers, generators, readings, invoices, payments, expenses, reports/debts, reports/financial, reports/consumption, dashboard, /readings/latest/{customer_id}) remain green. No backend regressions.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/invoices", "issue": "invoice_number generation is not atomic. Two concurrent POST /api/invoices requests could receive the same number because the code does find_one -> parse -> +1 -> insert without a transaction/counter. Consider using a MongoDB findAndModify on a counters collection ({_id:'invoice_seq'}, $inc:{seq:1}) or a unique index on invoice_number with retry-on-duplicate."},
+      {"endpoint": "POST /api/invoices", "issue": "'Last invoice' is picked via sort by created_at desc, not by invoice_number. If a document is inserted with a stale/backdated created_at, the sequence could go backwards. Safer: sort by invoice_number desc (as string works because it is zero-padded 5-digit, until 100000)."},
+      {"endpoint": "POST /api/invoices", "issue": "No uniqueness constraint (index) on invoice_number in db.invoices. A duplicate can be silently created. Recommend: db.invoices.create_index('invoice_number', unique=True, sparse=True)."},
+      {"endpoint": "POST /api/invoices", "issue": "(carried over) total_amount is still client-supplied; server should compute total = consumption_charge + monthly_fee + previous_balance."},
+      {"endpoint": "POST /api/invoices/{id}/payment", "issue": "(carried over) No validation that amount > 0 and no overpayment guard."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Consider making invoice_number generation atomic (MongoDB counters collection or unique index + retry) - see minor issues above.",
+    "Add unique index on invoices.invoice_number (sparse=True to allow any legacy rows without a number).",
+    "Sort by invoice_number desc rather than created_at desc when computing next number, to avoid backdated inserts breaking the sequence.",
+    "Optional: server-side compute total_amount = consumption_charge + monthly_fee + previous_balance instead of trusting client."
+  ],
+  "critical_code_review_comments": [
+    "server.py L352-362: invoice_number generation uses find_one sorted by created_at desc; not concurrency-safe and susceptible to backdated created_at values.",
+    "server.py L362: str(new_num).zfill(5) - correct for 5-digit padding; will silently grow to 6+ digits after 99999 (acceptable for foreseeable use).",
+    "server.py: still uses Pydantic v1 .dict() and deprecated @app.on_event('shutdown') (carried over).",
+    "server.py: Admin credentials hardcoded (carried over)."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (37/37)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "All new invoice_number tests create TEST_ prefixed customers/readings/invoices and clean up via DELETE /api/customers/{id} in try/finally blocks. Note: DELETE customer does NOT cascade-delete their invoices, so a few TEST invoices remain in db.invoices. This does not impact tests since numbers are always relative to max.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Invoice.invoice_number is auto-generated in server.py L352-362 as a zero-padded 5-digit string. Baseline test count is now 37/37 green. Known non-blocking concerns: non-atomic generation, missing unique index, sort by created_at (not by invoice_number). Frontend PDF/WhatsApp features are client-side (expo-print + Linking) and were explicitly out of scope for this backend-only review."
+}
