@@ -1,0 +1,43 @@
+{
+  "summary": "Backend-only regression verification after Iteration 11 (frontend-only bug fix: dashboard 'unpaid invoices' and 'overdue invoices' stat cards wrapped in TouchableOpacity so users can tap and navigate to filtered invoices). Backend has ZERO changes; the goal was to confirm no regressions and that the endpoints the new tappable cards depend on still work correctly. Ran full pytest suite: 51/51 PASSED in 12.46s. Additionally spot-checked the exact APIs the fix relies on: (1) GET /api/invoices?status=unpaid returns only invoices with status='unpaid' (8 rows, all with is_overdue field present for client-side filtering). (2) GET /api/invoices?status=partial returns only status='partial' (3 rows). (3) GET /api/invoices (no filter) returns is_overdue on every item so the frontend can do the client-side is_overdue=true filter for the overdue card. (4) GET /api/stats/dashboard still returns unpaid_invoices=11 (unpaid+partial) and overdue_count=0 as documented. No backend regressions.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/invoices", "issue": "The status query param is a free-form string; there is no whitelist (unpaid|partial|paid). An invalid value silently returns [] instead of 400. Non-blocking."},
+      {"endpoint": "GET /api/invoices", "issue": "is_overdue is derived on every list call by scanning all matching invoices and updating them one-by-one (N mongo update_one calls per request). For a large invoice set this is O(N) writes on every read; consider a scheduled job or a single update_many({status:{$in:[unpaid,partial]}, due_date:{$lt:now}}, {$set:{is_overdue:true}}). Carried-over."},
+      {"endpoint": "POST /api/expenses", "issue": "expense_type still a free-form string (no enum). Carried."},
+      {"endpoint": "POST /api/expenses & POST /api/invoices/{id}/payment", "issue": "No amount>0 validation. Carried."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "None required for this iteration - backend was not modified and no regressions were found.",
+    "(non-blocking, carried) Whitelist status values on GET /api/invoices (return 400 on invalid).",
+    "(non-blocking, carried) Optimize is_overdue update in GET /api/invoices to a single update_many, or move to a scheduled task.",
+    "(non-blocking, carried) Make expense_type an Enum; validate amount>0 on POST /api/expenses and POST /api/invoices/{id}/payment.",
+    "(non-blocking, carried) Wrap DELETE /api/customers/{id} cascade in a MongoDB transaction; make invoice_number generation atomic (findOneAndUpdate on a counters doc)."
+  ],
+  "critical_code_review_comments": [
+    "server.py L399-425: GET /api/invoices?status=unpaid works correctly for the new frontend fix (filter by exact status string). is_overdue is added to every returned item, so the frontend's client-side is_overdue=true filter for the 'overdue' card will work.",
+    "server.py L417-423: On every list request, invoices past due_date get individually updated with update_one. This is correct but inefficient; prefer update_many once, then read. Carried.",
+    "server.py L666-729: /stats/dashboard.unpaid_invoices counts {status:{$in:[unpaid,partial]}} while the new frontend card navigates to /invoices?status=unpaid (unpaid only). This is intentional per the fix (11 vs 8 in my sample), but E1 should confirm the UX expectation: does the badge count include partial while the drill-down excludes it? If so, add a small note in the UI, or change the drill-down to open with a combined filter.",
+    "server.py L154-155 (carried): admin credentials hardcoded.",
+    "server.py L129 (carried): ExpenseCreate comment omits 'oil'."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (51/51)", "frontend": "not tested (backend-only request per E1)"},
+  "seed_data_creation": "None - reused existing tests which create and clean up TEST_* records inline.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "This was a purely frontend fix (TouchableOpacity wrapping of two dashboard cards). Backend was not touched. All 51 backend regression tests still green. If E1 later requests frontend UI testing, verify: (1) tapping the 'فواتير غير مدفوعة' card navigates to invoices list filtered by status=unpaid, (2) tapping the 'فواتير متأخرة' card navigates to invoices list filtered client-side by is_overdue=true, (3) both cards have testID and 44x44 minimum touch targets, (4) exclamation icon still visible after wrapping in TouchableOpacity, (5) opacity feedback on press. Also verify the semantic mismatch flagged above: dashboard.unpaid_invoices includes partial payments (via $in [unpaid, partial]) but the tap navigates to status=unpaid only - E1 may want to align these.",
+  "rca_of_issue": "N/A - reported issue was a frontend-only tappability bug (cards had no onPress); fix was to wrap in TouchableOpacity. Backend regression confirmed unaffected."
+}

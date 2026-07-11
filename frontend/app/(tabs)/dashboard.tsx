@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, RefreshControl } from 'react-native';
+import { View, StyleSheet, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
 import { Card, Title, Paragraph, Button, Text } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -72,39 +72,67 @@ export default function DashboardScreen() {
           <View style={styles.content}>
             {/* Stats Cards */}
             <View style={styles.statsGrid}>
-              <Card style={[styles.statCard, { backgroundColor: '#1E88E5' }]}>
-                <Card.Content>
-                  <MaterialCommunityIcons name="account-group" size={32} color="#fff" />
-                  <Title style={styles.statNumber}>{stats?.total_customers || 0}</Title>
-                  <Paragraph style={styles.statLabel}>إجمالي المشتركين</Paragraph>
-                </Card.Content>
-              </Card>
+              <TouchableOpacity
+                style={styles.statCardWrapper}
+                onPress={() => router.push('/(tabs)/customers')}
+                activeOpacity={0.7}
+                testID="stat-customers-card"
+              >
+                <Card style={[styles.statCard, { backgroundColor: '#1E88E5' }]}>
+                  <Card.Content>
+                    <MaterialCommunityIcons name="account-group" size={32} color="#fff" />
+                    <Title style={styles.statNumber}>{stats?.total_customers || 0}</Title>
+                    <Paragraph style={styles.statLabel}>إجمالي المشتركين</Paragraph>
+                  </Card.Content>
+                </Card>
+              </TouchableOpacity>
 
-              <Card style={[styles.statCard, { backgroundColor: '#43A047' }]}>
-                <Card.Content>
-                  <MaterialCommunityIcons name="engine" size={32} color="#fff" />
-                  <Title style={styles.statNumber}>{stats?.total_generators || 0}</Title>
-                  <Paragraph style={styles.statLabel}>عدد المولدات</Paragraph>
-                </Card.Content>
-              </Card>
+              <TouchableOpacity
+                style={styles.statCardWrapper}
+                onPress={() => router.push('/(tabs)/generators')}
+                activeOpacity={0.7}
+                testID="stat-generators-card"
+              >
+                <Card style={[styles.statCard, { backgroundColor: '#43A047' }]}>
+                  <Card.Content>
+                    <MaterialCommunityIcons name="engine" size={32} color="#fff" />
+                    <Title style={styles.statNumber}>{stats?.total_generators || 0}</Title>
+                    <Paragraph style={styles.statLabel}>عدد المولدات</Paragraph>
+                  </Card.Content>
+                </Card>
+              </TouchableOpacity>
             </View>
 
             <View style={styles.statsGrid}>
-              <Card style={[styles.statCard, { backgroundColor: '#FB8C00' }]}>
-                <Card.Content>
-                  <MaterialCommunityIcons name="alert-circle" size={32} color="#fff" />
-                  <Title style={styles.statNumber}>{stats?.unpaid_invoices || 0}</Title>
-                  <Paragraph style={styles.statLabel}>فواتير غير مدفوعة</Paragraph>
-                </Card.Content>
-              </Card>
+              <TouchableOpacity
+                style={styles.statCardWrapper}
+                onPress={() => router.push({ pathname: '/(tabs)/invoices', params: { filter: 'unpaid' } })}
+                activeOpacity={0.7}
+                testID="stat-unpaid-card"
+              >
+                <Card style={[styles.statCard, { backgroundColor: '#FB8C00' }]}>
+                  <Card.Content>
+                    <MaterialCommunityIcons name="alert-circle" size={32} color="#fff" />
+                    <Title style={styles.statNumber}>{stats?.unpaid_invoices || 0}</Title>
+                    <Paragraph style={styles.statLabel}>فواتير غير مدفوعة</Paragraph>
+                  </Card.Content>
+                </Card>
+              </TouchableOpacity>
 
-              <Card style={[styles.statCard, { backgroundColor: '#E53935' }]}>
-                <Card.Content>
-                  <MaterialCommunityIcons name="clock-alert" size={32} color="#fff" />
-                  <Title style={styles.statNumber}>{stats?.overdue_count || 0}</Title>
-                  <Paragraph style={styles.statLabel}>فواتير متأخرة</Paragraph>
-                </Card.Content>
-              </Card>
+              <TouchableOpacity
+                style={styles.statCardWrapper}
+                onPress={() => router.push({ pathname: '/(tabs)/invoices', params: { filter: 'overdue' } })}
+                activeOpacity={0.7}
+                testID="stat-overdue-card"
+              >
+                <Card style={[styles.statCard, { backgroundColor: '#E53935' }]}>
+                  <Card.Content>
+                    <MaterialCommunityIcons name="clock-alert" size={32} color="#fff" />
+                    <Title style={styles.statNumber}>{stats?.overdue_count || 0}</Title>
+                    <Paragraph style={styles.statLabel}>فواتير متأخرة</Paragraph>
+                  </Card.Content>
+                </Card>
+              </TouchableOpacity>
             </View>
 
             {/* Monthly Consumption & Expenses */}
@@ -261,6 +289,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginBottom: 16,
     gap: 16,
+  },
+  statCardWrapper: {
+    flex: 1,
   },
   statCard: {
     flex: 1,

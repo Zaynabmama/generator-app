@@ -5,6 +5,7 @@ import {
   FlatList,
   Alert,
   TouchableOpacity,
+  ScrollView,
 } from 'react-native';
 import {
   Card,
@@ -19,32 +20,50 @@ import {
   TextInput as PaperInput,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { invoicesAPI, customersAPI } from '@/src/services/api';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 export default function InvoicesScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ filter?: string }>();
   const [invoices, setInvoices] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
+  const [showOverdueOnly, setShowOverdueOnly] = useState(false);
   const [paymentDialogVisible, setPaymentDialogVisible] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
 
+  // Apply filter from route params (from dashboard)
+  useEffect(() => {
+    if (params.filter === 'unpaid') {
+      setSelectedStatus('unpaid');
+      setShowOverdueOnly(false);
+    } else if (params.filter === 'overdue') {
+      setShowOverdueOnly(true);
+      setSelectedStatus(null);
+    }
+  }, [params.filter]);
+
   const fetchData = async () => {
     try {
-      const params: any = {};
-      if (selectedStatus) params.status = selectedStatus;
+      const apiParams: any = {};
+      if (selectedStatus) apiParams.status = selectedStatus;
 
       const [invoicesRes, customersRes] = await Promise.all([
-        invoicesAPI.getAll(params),
+        invoicesAPI.getAll(apiParams),
         customersAPI.getAll(),
       ]);
 
       let filteredInvoices = invoicesRes.data;
+
+      // Filter by overdue
+      if (showOverdueOnly) {
+        filteredInvoices = filteredInvoices.filter((inv: any) => inv.is_overdue);
+      }
 
       // Filter by customer name if searching
       if (searchQuery) {
@@ -69,7 +88,7 @@ export default function InvoicesScreen() {
 
   useEffect(() => {
     fetchData();
-  }, [searchQuery, selectedStatus]);
+  }, [searchQuery, selectedStatus, showOverdueOnly]);
 
   const getCustomerName = (customerId: string) => {
     const customer = customers.find((c) => c.id === customerId);
@@ -232,36 +251,49 @@ export default function InvoicesScreen() {
         />
       </View>
 
-      <View style={styles.filterContainer}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.filterScrollView}
+        contentContainerStyle={styles.filterContainer}
+      >
         <Chip
-          selected={selectedStatus === null}
-          onPress={() => setSelectedStatus(null)}
+          selected={selectedStatus === null && !showOverdueOnly}
+          onPress={() => { setSelectedStatus(null); setShowOverdueOnly(false); }}
           style={styles.filterChip}
         >
           الكل
         </Chip>
         <Chip
           selected={selectedStatus === 'unpaid'}
-          onPress={() => setSelectedStatus('unpaid')}
+          onPress={() => { setSelectedStatus('unpaid'); setShowOverdueOnly(false); }}
           style={styles.filterChip}
         >
           غير مدفوعة
         </Chip>
         <Chip
           selected={selectedStatus === 'partial'}
-          onPress={() => setSelectedStatus('partial')}
+          onPress={() => { setSelectedStatus('partial'); setShowOverdueOnly(false); }}
           style={styles.filterChip}
         >
           جزئية
         </Chip>
         <Chip
           selected={selectedStatus === 'paid'}
-          onPress={() => setSelectedStatus('paid')}
+          onPress={() => { setSelectedStatus('paid'); setShowOverdueOnly(false); }}
           style={styles.filterChip}
         >
           مدفوعة
         </Chip>
-      </View>
+        <Chip
+          selected={showOverdueOnly}
+          onPress={() => { setShowOverdueOnly(true); setSelectedStatus(null); }}
+          style={styles.filterChip}
+          icon="clock-alert"
+        >
+          متأخرة
+        </Chip>
+      </ScrollView>
 
       <FlatList
         data={invoices}
@@ -332,14 +364,19 @@ const styles = StyleSheet.create({
   searchbar: {
     backgroundColor: '#2A2A2A',
   },
+  filterScrollView: {
+    backgroundColor: '#1E1E1E',
+    maxHeight: 56,
+  },
   filterContainer: {
     flexDirection: 'row',
-    padding: 16,
+    padding: 12,
     gap: 8,
-    backgroundColor: '#1E1E1E',
+    alignItems: 'center',
   },
   filterChip: {
     marginRight: 0,
+    flexShrink: 0,
   },
   listContent: {
     padding: 16,
