@@ -25,7 +25,8 @@ import { invoicesAPI, customersAPI, readingsAPI, generatorsAPI } from '@/src/ser
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 export default function InvoiceDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{ id: string; autoWhatsApp?: string }>();
+  const { id, autoWhatsApp } = params;
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -35,6 +36,7 @@ export default function InvoiceDetailScreen() {
   const [generator, setGenerator] = useState<any>(null);
   const [paymentDialogVisible, setPaymentDialogVisible] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
+  const [autoSendTriggered, setAutoSendTriggered] = useState(false);
 
   const BUSINESS_INFO = {
     name: 'أبو عباس للإنارة',
@@ -45,6 +47,16 @@ export default function InvoiceDetailScreen() {
   useEffect(() => {
     fetchData();
   }, [id]);
+
+  // Auto-open WhatsApp after invoice created
+  useEffect(() => {
+    if (autoWhatsApp === '1' && !autoSendTriggered && invoice && customer && reading) {
+      setAutoSendTriggered(true);
+      setTimeout(() => {
+        handleWhatsAppSend();
+      }, 800);
+    }
+  }, [autoWhatsApp, invoice, customer, reading, autoSendTriggered]);
 
   const fetchData = async () => {
     try {

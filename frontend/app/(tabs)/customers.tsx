@@ -15,6 +15,8 @@ import {
   IconButton,
   Menu,
   Button,
+  Portal,
+  Dialog,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -28,6 +30,8 @@ export default function CustomersScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [menuVisible, setMenuVisible] = useState<string | null>(null);
+  const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
+  const [customerToDelete, setCustomerToDelete] = useState<any>(null);
 
   const areas = ['المسعودية', 'الشرقي', 'الحيصة', 'الغربي'];
 
@@ -61,27 +65,21 @@ export default function CustomersScreen() {
     return generator?.name || 'غير محدد';
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    Alert.alert(
-      'تأكيد الحذف',
-      `هل أنت متأكد من حذف المشترك "${name}"؟`,
-      [
-        { text: 'إلغاء', style: 'cancel' },
-        {
-          text: 'حذف',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await customersAPI.delete(id);
-              fetchData();
-              Alert.alert('نجاح', 'تم حذف المشترك بنجاح');
-            } catch (error: any) {
-              Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحذف');
-            }
-          },
-        },
-      ]
-    );
+  const handleDelete = (id: string, name: string) => {
+    setCustomerToDelete({ id, name });
+    setDeleteDialogVisible(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!customerToDelete) return;
+    try {
+      await customersAPI.delete(customerToDelete.id);
+      setDeleteDialogVisible(false);
+      setCustomerToDelete(null);
+      await fetchData();
+    } catch (error: any) {
+      Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحذف');
+    }
   };
 
   const renderCustomer = ({ item }: any) => (
@@ -193,6 +191,33 @@ export default function CustomersScreen() {
         onPress={() => router.push('/customers/add')}
         label="إضافة مشترك"
       />
+
+      <Portal>
+        <Dialog
+          visible={deleteDialogVisible}
+          onDismiss={() => setDeleteDialogVisible(false)}
+        >
+          <Dialog.Title>تأكيد الحذف</Dialog.Title>
+          <Dialog.Content>
+            <Text style={{ color: '#ccc' }}>
+              هل أنت متأكد من حذف المشترك &quot;{customerToDelete?.name}&quot;؟
+            </Text>
+            <Text style={{ color: '#F44336', marginTop: 8, fontSize: 12 }}>
+              سيتم حذف جميع فواتير هذا المشترك وقراءاته!
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setDeleteDialogVisible(false)}>إلغاء</Button>
+            <Button
+              onPress={confirmDelete}
+              textColor="#F44336"
+              testID="confirm-delete-btn"
+            >
+              حذف
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </SafeAreaView>
   );
 }

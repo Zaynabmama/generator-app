@@ -818,3 +818,164 @@ class TestEndpointsHealth:
         data = r.json()
         for k in ["total_consumption", "consumption_by_area", "consumption_by_generator"]:
             assert k in data
+
+
+# ==================== Iteration 8: DELETE customer cascade ====================
+
+class TestCustomerCascadeDelete:
+    """
+    DELETE /api/customers/{id} must cascade-delete:
+    - all invoices for that customer
+    - all readings for that customer
+    - all payments for that customer
+    AND decrement generator.subscriber_count.
+    """
+
+    def _make_customer(self, api_client, gen_id):
+        payload = {
+            "name": f"TEST_CASCADE_{uuid.uuid4().hex[:6]}",
+            "phone": "07799999999",
+            "address": "TEST",
+            "area": "المسعودية",
+            "meter_number": f"TEST-{uuid.uuid4().hex[:6]}",
+            "generator_id": gen_id,
+            "previous_balance": 0.0,
+        }
+        r = api_client.post(f"{API}/customers", json=payload)
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    def _make_reading(self, api_client, cust_id):
+        r = api_client.post(f"{API}/readings", json={
+            "customer_id": cust_id,
+            "previous_reading": 0.0,
+            "current_reading": 100.0,
+            "reading_date": datetime.utcnow().isoformat(),
+        })
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    def _make_invoice(self, api_client, cust_id, reading_id):
+        r = api_client.post(f"{API}/invoices", json={
+            "customer_id": cust_id,
+            "reading_id": reading_id,
+            "month": datetime.utcnow().strftime("%Y-%m"),
+            "consumption_charge": 85.0,
+            "monthly_fee": 5.0,
+            "total_amount": 90.0,
+            "previous_balance": 0.0,
+            "amount_paid": 0.0,
+        })
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    def test_delete_customer_cascades_invoices_readings_and_decrements_generator(
+        self, api_client
+    ):
+        # pick a generator, capture initial subscriber_count
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        initial_count = gens[0]["subscriber_count"]
+
+        # create customer -> +1 to subscriber_count
+        cust_id = self._make_customer(api_client, gen_id)
+        after_create = api_client.get(f"{API}/generators/{gen_id}").json()
+        assert after_create["subscriber_count"] == initial_count + 1
+
+        # create reading + invoice
+        reading_id = self._make_reading(api_client, cust_id)
+        invoice_id = self._make_invoice(api_client, cust_id, reading_id)
+
+        # sanity: they exist and are linked
+        inv_before = api_client.get(f"{API}/invoices", params={"customer_id": cust_id}).json()
+        rd_before = api_client.get(f"{API}/readings", params={"customer_id": cust_id}).json()
+        assert len(inv_before) >= 1 and any(i["id"] == invoice_id for i in inv_before)
+        assert len(rd_before) >= 1 and any(r["id"] == reading_id for r in rd_before)
+
+        # cascade delete
+        d = api_client.delete(f"{API}/customers/{cust_id}")
+        assert d.status_code == 200, d.text
+        assert "message" in d.json()
+
+        # customer is gone
+        assert api_client.get(f"{API}/customers/{cust_id}").status_code == 404
+
+        # invoices for this customer are gone
+        inv_after = api_client.get(f"{API}/invoices", params={"customer_id": cust_id}).json()
+        assert inv_after == [], f"Orphan invoices remained: {inv_after}"
+
+        # individual invoice endpoint should 404
+        assert api_client.get(f"{API}/invoices/{invoice_id}").status_code == 404
+
+        # readings for this customer are gone
+        rd_after = api_client.get(f"{API}/readings", params={"customer_id": cust_id}).json()
+        assert rd_after == [], f"Orphan readings remained: {rd_after}"
+
+        # generator subscriber_count decremented back to initial
+        after_delete = api_client.get(f"{API}/generators/{gen_id}").json()
+        assert after_delete["subscriber_count"] == initial_count, (
+            f"subscriber_count not decremented: initial={initial_count}, "
+            f"after_delete={after_delete['subscriber_count']}"
+        )
+
+    def test_delete_customer_only_cascades_own_data_not_others(self, api_client):
+        """Deleting customer A must NOT delete customer B's invoices/readings."""
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+
+        cust_a = self._make_customer(api_client, gen_id)
+        cust_b = self._make_customer(api_client, gen_id)
+
+        rd_a = self._make_reading(api_client, cust_a)
+        rd_b = self._make_reading(api_client, cust_b)
+        inv_a = self._make_invoice(api_client, cust_a, rd_a)
+        inv_b = self._make_invoice(api_client, cust_b, rd_b)
+
+        # delete A
+        assert api_client.delete(f"{API}/customers/{cust_a}").status_code == 200
+
+        # A's data gone
+        assert api_client.get(f"{API}/invoices/{inv_a}").status_code == 404
+        # B's data still present
+        rb = api_client.get(f"{API}/invoices/{inv_b}")
+        assert rb.status_code == 200, rb.text
+        assert rb.json()["customer_id"] == cust_b
+
+        rd_b_list = api_client.get(f"{API}/readings", params={"customer_id": cust_b}).json()
+        assert any(r["id"] == rd_b for r in rd_b_list)
+
+        # cleanup B
+        api_client.delete(f"{API}/customers/{cust_b}")
+
+    def test_delete_nonexistent_customer_returns_404(self, api_client):
+        # well-formed but non-existing ObjectId
+        fake_id = "507f1f77bcf86cd799439011"
+        r = api_client.delete(f"{API}/customers/{fake_id}")
+        assert r.status_code == 404, r.text
+
+    def test_invoice_creation_returns_invoice_id_in_response(self, api_client):
+        """Frontend uses returned id to redirect to /invoices/{id}?autoWhatsApp=1."""
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        cust_id = self._make_customer(api_client, gen_id)
+        try:
+            reading_id = self._make_reading(api_client, cust_id)
+            r = api_client.post(f"{API}/invoices", json={
+                "customer_id": cust_id,
+                "reading_id": reading_id,
+                "month": datetime.utcnow().strftime("%Y-%m"),
+                "consumption_charge": 85.0,
+                "monthly_fee": 5.0,
+                "total_amount": 90.0,
+                "previous_balance": 0.0,
+                "amount_paid": 0.0,
+            })
+            assert r.status_code == 200, r.text
+            body = r.json()
+            assert "id" in body and isinstance(body["id"], str) and len(body["id"]) > 0
+            # verify it's fetchable
+            got = api_client.get(f"{API}/invoices/{body['id']}")
+            assert got.status_code == 200
+            assert got.json()["customer_id"] == cust_id
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")

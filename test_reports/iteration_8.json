@@ -1,0 +1,42 @@
+{
+  "summary": "Backend-only verification of Iteration 8 changes: DELETE /api/customers/{id} now cascades to invoices, readings, and payments. Added TestCustomerCascadeDelete class (4 new tests) and re-ran full suite: 41/41 PASSED in 8.60s. Verified: (1) After create customer -> reading -> invoice -> DELETE customer, GET /api/customers/{id}=404, GET /api/invoices?customer_id={id}=[], GET /api/invoices/{invoice_id}=404, GET /api/readings?customer_id={id}=[], and generator.subscriber_count is decremented back to its initial value. (2) Deleting customer A does NOT touch customer B's invoices/readings (isolation confirmed). (3) DELETE non-existent customer (well-formed ObjectId) returns 404 with Arabic detail. (4) POST /api/invoices response contains 'id' string used by frontend for redirect to /invoices/{id}?autoWhatsApp=1. Regression verified across auth (MS/Ms28796610**), 3 seed generators (150/250/300 kVA), customer CRUD without amperage, monthly fee $5, payment status transitions (partial/paid/multi-payment accumulation), invoice_number 5-digit sequential starting >=01710, /readings/latest/{customer_id}, dashboard, /reports/debts, /reports/financial, /reports/consumption, and all EndpointsHealth checks. No backend regressions. WhatsApp auto-send is client-side only (no backend endpoint) - confirmed no backend changes required.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "DELETE /api/customers/{id}", "issue": "Cascade delete now removes payments by customer_id, but the payments collection currently stores only invoice_id (see add_payment at server.py L470-473 which does NOT persist customer_id on the payment doc). Result: db.payments.delete_many({customer_id}) will match 0 documents - payments become orphaned once their parent invoice is deleted. Fix: either (a) store customer_id on payment insert, or (b) collect invoice_ids for the customer first and delete_many({invoice_id: {$in: [...]}})."},
+      {"endpoint": "POST /api/invoices/{id}/payment", "issue": "Still no validation that amount > 0; still no overpayment guard; customer.current_balance still set to per-invoice remaining rather than aggregated. Carried over from iteration 7."},
+      {"endpoint": "POST /api/invoices", "issue": "total_amount still trusted from client; invoice_number generation still non-atomic. Carried over from iteration 7."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "IMPORTANT: Fix payments cascade delete in DELETE /api/customers/{id}. Current code (server.py L247) does db.payments.delete_many({'customer_id': customer_id}) but payments are inserted without a customer_id field (server.py L470-473). Change add_payment to also store 'customer_id': invoice['customer_id'] on payment insert, OR change delete_customer to look up invoice_ids first and delete payments by invoice_id.",
+    "(non-blocking, from iter 7) Backend hardening: validate payment.amount > 0, reject overpayment, aggregate customer.current_balance across all unpaid/partial invoices, make invoice_number generation atomic.",
+    "(non-blocking) Admin credentials still hardcoded in server.py L154-155; consider moving to env or hashed store."
+  ],
+  "critical_code_review_comments": [
+    "server.py L247: db.payments.delete_many({'customer_id': customer_id}) will never match because add_payment (L470-473) inserts payment docs WITHOUT customer_id. This is a real bug in the cascade delete implementation - payments become orphaned. Recommended fix: in delete_customer, first fetch invoice_ids: `invoice_ids = [str(i['_id']) async for i in db.invoices.find({'customer_id': customer_id}, {'_id': 1})]` then `await db.payments.delete_many({'invoice_id': {'$in': invoice_ids}})`; OR add customer_id to payment_dict in add_payment.",
+    "server.py L232-250 delete_customer: operations are not atomic - a failure between subscriber_count decrement and invoice/reading deletion could leave inconsistent state. Consider MongoDB transactions or reorder to delete-then-decrement.",
+    "server.py L459-462 (carried): customer.current_balance = new_remaining is per-invoice, not aggregated.",
+    "server.py L429-470 add_payment (carried): no amount>0 check, no overpayment check.",
+    "server.py L348-392 create_invoice (carried): total_amount client-supplied; invoice_number generation non-atomic."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (added TestCustomerCascadeDelete class with 4 tests at lines 822-976)"
+  ],
+  "success_rate": {"backend": "100% (41/41)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "Cascade delete tests create TEST_CASCADE_ prefixed customers with readings+invoices, then verify deletion. Because DELETE now cascades, no orphan TEST invoices/readings remain after runs. Non-cascade test (isolation) creates 2 customers and deletes both in try/finally.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Cascade DELETE /api/customers/{id} confirmed working for invoices and readings (verified via GET returns []/404 and generator subscriber_count decrements). HOWEVER: payments cascade is a NO-OP because add_payment does not persist customer_id on payment documents. This is not covered by the current tests (they don't insert payments before deleting the customer for cascade verification since payments require prior invoice). If main agent fixes add_payment to store customer_id (or changes delete_customer to derive invoice_ids first), add a regression test creating customer->invoice->payment->delete customer and asserting no orphan payments remain. Backend contract otherwise stable: POST /api/invoices returns 200 with 'id' used by frontend for redirect to /invoices/{id}?autoWhatsApp=1 - WhatsApp send is purely client-side via Linking, no backend involvement.",
+  "rca_of_issue": "User reported (1) 'Delete customer doesn't work' - actually two problems: (a) frontend Alert.alert callback silently fails on React Native Web (fixed client-side by main agent using Portal Dialog), (b) even when the API was called, invoices/readings were left orphaned (fixed by adding cascade in delete_customer L244-247). Verified fix works for invoices and readings. Payments cascade is written but non-functional due to missing customer_id on payment docs - see action_items. (2) 'Auto-send invoice via WhatsApp' - fully client-side: after POST /api/invoices succeeds, frontend redirects to /invoices/{id}?autoWhatsApp=1 which on mount opens WhatsApp via Linking with the customer's phone. Confirmed POST /api/invoices returns the invoice id needed for this redirect."
+}

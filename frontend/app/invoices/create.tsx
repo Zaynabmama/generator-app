@@ -122,7 +122,7 @@ export default function CreateInvoiceScreen() {
       });
 
       // Create invoice
-      await invoicesAPI.create({
+      const invoiceResponse = await invoicesAPI.create({
         customer_id: selectedCustomer.id,
         reading_id: readingResponse.data.id,
         month: invoicePreview.month,
@@ -134,8 +134,9 @@ export default function CreateInvoiceScreen() {
         notes: '',
       });
 
-      Alert.alert('نجاح', 'تم إنشاء الفاتورة بنجاح');
-      router.back();
+      // Redirect to invoice detail with auto-WhatsApp flag
+      const invoiceId = invoiceResponse.data.id;
+      router.replace(`/invoices/${invoiceId}?autoWhatsApp=1`);
     } catch (error: any) {
       Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحفظ');
     } finally {

@@ -241,8 +241,13 @@ async def delete_customer(customer_id: str):
         {"$inc": {"subscriber_count": -1}}
     )
     
+    # Cascade delete: remove all invoices, readings, and payments for this customer
+    await db.invoices.delete_many({"customer_id": customer_id})
+    await db.readings.delete_many({"customer_id": customer_id})
+    await db.payments.delete_many({"customer_id": customer_id})
+    
     await db.customers.delete_one({"_id": ObjectId(customer_id)})
-    return {"message": "تم حذف المشترك بنجاح"}
+    return {"message": "تم حذف المشترك وجميع بياناته بنجاح"}
 
 # ==================== Generator APIs ====================
 
