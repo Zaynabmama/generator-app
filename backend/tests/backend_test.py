@@ -1513,3 +1513,504 @@ class TestDashboardMonthlyStats:
         r = api_client.get(f"{API}/expenses")
         assert r.status_code == 200
         assert not any(e["id"] == eid for e in r.json())
+
+
+
+# ==================== Iteration 15: Customer Suspension Feature ====================
+
+class TestCustomerSuspension:
+    """
+    Iteration 15: New PUT /api/customers/{id}/suspend endpoint that TOGGLES
+    the customer's is_suspended flag.
+    - Customer model has new fields: is_suspended (bool, default False), suspended_at (datetime or null)
+    - Suspend active -> is_suspended=True, suspended_at set, message='تم تعليق المشترك'
+    - Suspend suspended -> is_suspended=False, suspended_at=null, message='تم إعادة تفعيل المشترك'
+    - 404 for nonexistent, 400 for invalid ObjectId
+    - Requires JWT (401 without)
+    """
+
+    def _make_customer(self, api_client, gen_id):
+        payload = {
+            "name": f"TEST_SUSPEND_{uuid.uuid4().hex[:6]}",
+            "phone": "07777777777",
+            "address": "TEST",
+            "area": "المسعودية",
+            "meter_number": f"TEST-{uuid.uuid4().hex[:6]}",
+            "generator_id": gen_id,
+            "previous_balance": 42.5,
+        }
+        r = api_client.post(f"{API}/customers", json=payload)
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def test_new_customer_has_is_suspended_false_by_default(self, api_client):
+        gens = api_client.get(f"{API}/generators").json()
+        cust = self._make_customer(api_client, gens[0]["id"])
+        try:
+            assert "is_suspended" in cust, f"is_suspended missing from response: {cust}"
+            assert cust["is_suspended"] is False
+            assert cust.get("suspended_at") is None
+        finally:
+            api_client.delete(f"{API}/customers/{cust['id']}")
+
+    def test_get_customers_returns_is_suspended_field(self, api_client):
+        gens = api_client.get(f"{API}/generators").json()
+        cust = self._make_customer(api_client, gens[0]["id"])
+        try:
+            r = api_client.get(f"{API}/customers")
+            assert r.status_code == 200
+            body = r.json()
+            found = [c for c in body if c["id"] == cust["id"]]
+            assert len(found) == 1
+            assert "is_suspended" in found[0]
+            assert found[0]["is_suspended"] is False
+            # suspended_at present as null-able
+            assert "suspended_at" in found[0]
+        finally:
+            api_client.delete(f"{API}/customers/{cust['id']}")
+
+    def test_get_single_customer_returns_is_suspended(self, api_client):
+        gens = api_client.get(f"{API}/generators").json()
+        cust = self._make_customer(api_client, gens[0]["id"])
+        try:
+            r = api_client.get(f"{API}/customers/{cust['id']}")
+            assert r.status_code == 200
+            body = r.json()
+            assert body["is_suspended"] is False
+            assert body.get("suspended_at") is None
+        finally:
+            api_client.delete(f"{API}/customers/{cust['id']}")
+
+    def test_suspend_active_customer_toggles_to_suspended(self, api_client):
+        gens = api_client.get(f"{API}/generators").json()
+        cust = self._make_customer(api_client, gens[0]["id"])
+        try:
+            r = api_client.put(f"{API}/customers/{cust['id']}/suspend")
+            assert r.status_code == 200, r.text
+            body = r.json()
+            assert body["is_suspended"] is True
+            assert body["message"] == "تم تعليق المشترك"
+
+            # Verify persistence via GET
+            got = api_client.get(f"{API}/customers/{cust['id']}").json()
+            assert got["is_suspended"] is True
+            assert got["suspended_at"] is not None, "suspended_at should be set"
+            # verify it parses as ISO datetime
+            datetime.fromisoformat(got["suspended_at"].replace("Z", "+00:00")) \
+                if got["suspended_at"].endswith("Z") else datetime.fromisoformat(got["suspended_at"])
+            # previous_balance preserved (account not wiped)
+            assert got["previous_balance"] == 42.5
+        finally:
+            api_client.delete(f"{API}/customers/{cust['id']}")
+
+    def test_suspend_suspended_customer_toggles_to_active(self, api_client):
+        gens = api_client.get(f"{API}/generators").json()
+        cust = self._make_customer(api_client, gens[0]["id"])
+        try:
+            # first call -> suspend
+            r1 = api_client.put(f"{API}/customers/{cust['id']}/suspend")
+            assert r1.status_code == 200
+            assert r1.json()["is_suspended"] is True
+
+            # second call -> unsuspend
+            r2 = api_client.put(f"{API}/customers/{cust['id']}/suspend")
+            assert r2.status_code == 200, r2.text
+            body = r2.json()
+            assert body["is_suspended"] is False
+            assert body["message"] == "تم إعادة تفعيل المشترك"
+
+            got = api_client.get(f"{API}/customers/{cust['id']}").json()
+            assert got["is_suspended"] is False
+            assert got["suspended_at"] is None, f"suspended_at must be cleared, got {got.get('suspended_at')}"
+        finally:
+            api_client.delete(f"{API}/customers/{cust['id']}")
+
+    def test_suspend_multi_toggle(self, api_client):
+        """Toggle 3 times: off -> on -> off -> on. State must alternate consistently."""
+        gens = api_client.get(f"{API}/generators").json()
+        cust = self._make_customer(api_client, gens[0]["id"])
+        try:
+            for expected in (True, False, True):
+                r = api_client.put(f"{API}/customers/{cust['id']}/suspend")
+                assert r.status_code == 200
+                assert r.json()["is_suspended"] is expected
+                got = api_client.get(f"{API}/customers/{cust['id']}").json()
+                assert got["is_suspended"] is expected
+                if expected:
+                    assert got["suspended_at"] is not None
+                else:
+                    assert got["suspended_at"] is None
+        finally:
+            api_client.delete(f"{API}/customers/{cust['id']}")
+
+    def test_suspend_nonexistent_customer_returns_404(self, api_client):
+        fake_id = "507f1f77bcf86cd799439011"  # well-formed but non-existing
+        r = api_client.put(f"{API}/customers/{fake_id}/suspend")
+        assert r.status_code == 404, r.text
+        assert "detail" in r.json()
+
+    def test_suspend_invalid_object_id_returns_400(self, api_client):
+        r = api_client.put(f"{API}/customers/invalid-id/suspend")
+        assert r.status_code == 400, r.text
+        assert r.json().get("detail") == "معرّف غير صالح"
+
+    def test_suspend_without_jwt_returns_401(self):
+        # bare requests (no Authorization header)
+        r = requests.put(
+            f"{API}/customers/507f1f77bcf86cd799439011/suspend",
+            headers={"Content-Type": "application/json"},
+        )
+        assert r.status_code == 401, r.text
+
+    def test_suspend_with_invalid_jwt_returns_401(self):
+        r = requests.put(
+            f"{API}/customers/507f1f77bcf86cd799439011/suspend",
+            headers={"Authorization": "Bearer not-a-real-jwt", "Content-Type": "application/json"},
+        )
+        assert r.status_code == 401, r.text
+
+    def test_suspend_preserves_invoices_and_readings(self, api_client):
+        """Suspension must NOT delete invoices/readings/payments (unlike delete)."""
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        cust = self._make_customer(api_client, gen_id)
+        try:
+            # create reading + invoice + partial payment
+            rd = api_client.post(f"{API}/readings", json={
+                "customer_id": cust["id"],
+                "previous_reading": 0.0,
+                "current_reading": 50.0,
+                "reading_date": datetime.utcnow().isoformat(),
+            }).json()
+            inv = api_client.post(f"{API}/invoices", json={
+                "customer_id": cust["id"],
+                "reading_id": rd["id"],
+                "month": datetime.utcnow().strftime("%Y-%m"),
+                "consumption_charge": 42.5,
+                "monthly_fee": 5.0,
+                "total_amount": 47.5,
+                "previous_balance": 0.0,
+                "amount_paid": 0.0,
+            }).json()
+            pay = api_client.post(f"{API}/invoices/{inv['id']}/payment",
+                                  json={"amount": 20.0})
+            assert pay.status_code == 200
+
+            # suspend the customer
+            s = api_client.put(f"{API}/customers/{cust['id']}/suspend")
+            assert s.status_code == 200
+            assert s.json()["is_suspended"] is True
+
+            # invoice, reading, payment still exist
+            got_inv = api_client.get(f"{API}/invoices/{inv['id']}")
+            assert got_inv.status_code == 200
+            assert got_inv.json()["amount_paid"] == 20.0
+            assert got_inv.json()["remaining_amount"] == 27.5
+
+            got_rd = api_client.get(f"{API}/readings/{rd['id']}")
+            assert got_rd.status_code == 200
+
+            # customer balance preserved (previous_balance + current_balance)
+            got_cust = api_client.get(f"{API}/customers/{cust['id']}").json()
+            assert got_cust["previous_balance"] == 42.5
+            assert got_cust["current_balance"] == 27.5
+        finally:
+            api_client.delete(f"{API}/customers/{cust['id']}")
+
+    def test_full_flow_create_invoice_pay_suspend_preserve_then_delete_cascades(
+        self, api_client
+    ):
+        """End-to-end: Create -> invoice -> partial pay -> suspend -> verify data preserved
+        -> delete -> verify cascade removes everything."""
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        initial_count = api_client.get(f"{API}/generators/{gen_id}").json()["subscriber_count"]
+
+        cust = self._make_customer(api_client, gen_id)
+        cust_id = cust["id"]
+
+        # +1 subscriber
+        assert api_client.get(f"{API}/generators/{gen_id}").json()["subscriber_count"] == initial_count + 1
+
+        # reading + invoice + partial payment
+        rd = api_client.post(f"{API}/readings", json={
+            "customer_id": cust_id, "previous_reading": 0.0, "current_reading": 30.0,
+            "reading_date": datetime.utcnow().isoformat(),
+        }).json()
+        inv = api_client.post(f"{API}/invoices", json={
+            "customer_id": cust_id, "reading_id": rd["id"],
+            "month": datetime.utcnow().strftime("%Y-%m"),
+            "consumption_charge": 25.5, "monthly_fee": 5.0, "total_amount": 30.5,
+            "previous_balance": 0.0, "amount_paid": 0.0,
+        }).json()
+        pr = api_client.post(f"{API}/invoices/{inv['id']}/payment", json={"amount": 10.0})
+        assert pr.status_code == 200
+
+        # suspend
+        assert api_client.put(f"{API}/customers/{cust_id}/suspend").status_code == 200
+        # data preserved
+        assert api_client.get(f"{API}/customers/{cust_id}").json()["is_suspended"] is True
+        assert api_client.get(f"{API}/invoices/{inv['id']}").status_code == 200
+        assert api_client.get(f"{API}/readings/{rd['id']}").status_code == 200
+
+        # subscriber_count NOT decremented on suspend (still +1)
+        assert api_client.get(f"{API}/generators/{gen_id}").json()["subscriber_count"] == initial_count + 1
+
+        # now delete -> cascade
+        d = api_client.delete(f"{API}/customers/{cust_id}")
+        assert d.status_code == 200
+
+        # everything gone
+        assert api_client.get(f"{API}/customers/{cust_id}").status_code == 404
+        assert api_client.get(f"{API}/invoices/{inv['id']}").status_code == 404
+        rd_after = api_client.get(f"{API}/readings", params={"customer_id": cust_id}).json()
+        assert rd_after == []
+        # subscriber_count restored
+        assert api_client.get(f"{API}/generators/{gen_id}").json()["subscriber_count"] == initial_count
+
+
+
+# ==================== Iteration 15: DELETE /api/invoices/{invoice_id} ====================
+
+class TestDeleteInvoice:
+    """
+    Iteration 15: New endpoint DELETE /api/invoices/{invoice_id}
+    - Deletes invoice + related payments
+    - Recalculates customer.current_balance from remaining unpaid invoices
+    - Returns Arabic success/error messages
+    - Requires JWT auth
+    """
+
+    def _make_customer(self, api_client, gen_id, previous_balance=0.0):
+        payload = {
+            "name": f"TEST_DELINV_{uuid.uuid4().hex[:6]}",
+            "phone": "07799999999",
+            "address": "TEST",
+            "area": "المسعودية",
+            "meter_number": f"TEST-{uuid.uuid4().hex[:6]}",
+            "generator_id": gen_id,
+            "previous_balance": previous_balance,
+        }
+        r = api_client.post(f"{API}/customers", json=payload)
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    def _make_reading(self, api_client, cust_id, prev=0.0, curr=100.0):
+        r = api_client.post(f"{API}/readings", json={
+            "customer_id": cust_id,
+            "previous_reading": prev,
+            "current_reading": curr,
+            "reading_date": datetime.utcnow().isoformat(),
+        })
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    def _make_invoice(self, api_client, cust_id, reading_id, total=90.0, amount_paid=0.0,
+                      previous_balance=0.0, month=None):
+        r = api_client.post(f"{API}/invoices", json={
+            "customer_id": cust_id,
+            "reading_id": reading_id,
+            "month": month or datetime.utcnow().strftime("%Y-%m"),
+            "consumption_charge": total - 5.0,
+            "monthly_fee": 5.0,
+            "total_amount": total,
+            "previous_balance": previous_balance,
+            "amount_paid": amount_paid,
+        })
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    # 1) Happy path: 200 + Arabic message
+    def test_delete_valid_invoice_returns_200_arabic_message(self, api_client):
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        cust_id = self._make_customer(api_client, gen_id)
+        try:
+            rd_id = self._make_reading(api_client, cust_id)
+            inv = self._make_invoice(api_client, cust_id, rd_id)
+            r = api_client.delete(f"{API}/invoices/{inv['id']}")
+            assert r.status_code == 200, r.text
+            body = r.json()
+            assert body.get("message") == "تم حذف الفاتورة بنجاح", body
+            # invoice really gone
+            assert api_client.get(f"{API}/invoices/{inv['id']}").status_code == 404
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    # 2) Non-existent (well-formed) id -> 404 Arabic
+    def test_delete_nonexistent_invoice_returns_404_arabic(self, api_client):
+        fake_id = "507f1f77bcf86cd799439011"  # valid ObjectId shape, doesn't exist
+        r = api_client.delete(f"{API}/invoices/{fake_id}")
+        assert r.status_code == 404, r.text
+        assert r.json().get("detail") == "الفاتورة غير موجودة"
+
+    # 3) Malformed id -> 400 via global InvalidId handler
+    def test_delete_invalid_id_returns_400(self, api_client):
+        r = api_client.delete(f"{API}/invoices/invalid-id")
+        assert r.status_code == 400, r.text
+        assert r.json().get("detail") == "معرّف غير صالح"
+
+    # 4) JWT required -> 401
+    def test_delete_invoice_without_jwt_returns_401(self):
+        r = requests.delete(f"{API}/invoices/507f1f77bcf86cd799439011")
+        assert r.status_code == 401, r.text
+
+    def test_delete_invoice_with_invalid_jwt_returns_401(self):
+        r = requests.delete(
+            f"{API}/invoices/507f1f77bcf86cd799439011",
+            headers={"Authorization": "Bearer not.a.jwt"},
+        )
+        assert r.status_code == 401, r.text
+
+    # 5) Cascade: related payments deleted (no orphans)
+    def test_delete_invoice_cascades_related_payments(self, api_client, mongo_db):
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        cust_id = self._make_customer(api_client, gen_id)
+        try:
+            rd_id = self._make_reading(api_client, cust_id)
+            inv = self._make_invoice(api_client, cust_id, rd_id, total=90.0)
+            inv_id = inv["id"]
+
+            # add 2 partial payments
+            assert api_client.post(f"{API}/invoices/{inv_id}/payment",
+                                   json={"amount": 20.0}).status_code == 200
+            assert api_client.post(f"{API}/invoices/{inv_id}/payment",
+                                   json={"amount": 30.0}).status_code == 200
+
+            pre = list(mongo_db.payments.find({"invoice_id": inv_id}))
+            assert len(pre) == 2, f"pre-delete payments: {pre}"
+
+            r = api_client.delete(f"{API}/invoices/{inv_id}")
+            assert r.status_code == 200, r.text
+
+            post = list(mongo_db.payments.find({"invoice_id": inv_id}))
+            assert post == [], f"Orphan payments after invoice delete: {post}"
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    # 6) Balance recalculation: deleting the ONLY unpaid invoice -> balance = 0
+    def test_delete_only_unpaid_invoice_sets_customer_balance_to_zero(self, api_client):
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        cust_id = self._make_customer(api_client, gen_id)
+        try:
+            rd_id = self._make_reading(api_client, cust_id)
+            inv = self._make_invoice(api_client, cust_id, rd_id, total=90.0)
+            # sanity: balance is now 90
+            cust = api_client.get(f"{API}/customers/{cust_id}").json()
+            assert cust["current_balance"] == 90.0, cust
+
+            r = api_client.delete(f"{API}/invoices/{inv['id']}")
+            assert r.status_code == 200, r.text
+
+            cust = api_client.get(f"{API}/customers/{cust_id}").json()
+            assert cust["current_balance"] == 0.0, (
+                f"Expected balance 0 after deleting only unpaid invoice, got {cust['current_balance']}"
+            )
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    # 7) Balance recalculation: OTHER unpaid invoices remain -> balance = most recent unpaid remaining_amount
+    def test_delete_unpaid_invoice_with_other_unpaid_uses_most_recent_remaining(
+        self, api_client
+    ):
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        cust_id = self._make_customer(api_client, gen_id)
+        try:
+            rd_id = self._make_reading(api_client, cust_id)
+
+            # Older invoice (created first) - remaining 40
+            inv_old = self._make_invoice(
+                api_client, cust_id, rd_id,
+                total=45.0, amount_paid=5.0, month="2025-11",
+            )
+            assert inv_old["remaining_amount"] == 40.0, inv_old
+
+            # Newer invoice (created second) - remaining 90
+            inv_new = self._make_invoice(
+                api_client, cust_id, rd_id,
+                total=95.0, amount_paid=5.0, month="2025-12",
+            )
+            assert inv_new["remaining_amount"] == 90.0, inv_new
+
+            # Customer balance is set to the LAST-created invoice's remaining (90)
+            cust = api_client.get(f"{API}/customers/{cust_id}").json()
+            assert cust["current_balance"] == 90.0, cust
+
+            # Delete the NEWER invoice -> balance should fall back to the older one (40)
+            r = api_client.delete(f"{API}/invoices/{inv_new['id']}")
+            assert r.status_code == 200, r.text
+
+            cust = api_client.get(f"{API}/customers/{cust_id}").json()
+            assert cust["current_balance"] == 40.0, (
+                f"Expected balance 40 (older unpaid remaining), got {cust['current_balance']}"
+            )
+
+            # Older invoice still exists and unchanged
+            still = api_client.get(f"{API}/invoices/{inv_old['id']}").json()
+            assert still["remaining_amount"] == 40.0
+            assert still["status"] == "partial"
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    # 8) Deleting an invoice does NOT touch other customers' invoices/payments
+    def test_delete_invoice_does_not_affect_other_customers(self, api_client, mongo_db):
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        cust_a = self._make_customer(api_client, gen_id)
+        cust_b = self._make_customer(api_client, gen_id)
+        try:
+            rd_a = self._make_reading(api_client, cust_a)
+            rd_b = self._make_reading(api_client, cust_b)
+            inv_a = self._make_invoice(api_client, cust_a, rd_a, total=50.0)
+            inv_b = self._make_invoice(api_client, cust_b, rd_b, total=70.0)
+            api_client.post(f"{API}/invoices/{inv_b['id']}/payment",
+                            json={"amount": 10.0})
+
+            # Delete A's invoice
+            r = api_client.delete(f"{API}/invoices/{inv_a['id']}")
+            assert r.status_code == 200, r.text
+
+            # B intact
+            b_inv = api_client.get(f"{API}/invoices/{inv_b['id']}")
+            assert b_inv.status_code == 200, b_inv.text
+            b_pays = list(mongo_db.payments.find({"invoice_id": inv_b['id']}))
+            assert len(b_pays) == 1, b_pays
+            # B customer balance untouched (still 60 remaining after 10 paid)
+            cust_b_data = api_client.get(f"{API}/customers/{cust_b}").json()
+            assert cust_b_data["current_balance"] == 60.0, cust_b_data
+        finally:
+            api_client.delete(f"{API}/customers/{cust_a}")
+            api_client.delete(f"{API}/customers/{cust_b}")
+
+    # 9) Regression: cascade delete on customer still removes all invoices/readings/payments
+    def test_regression_customer_cascade_still_works(self, api_client, mongo_db):
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        cust_id = self._make_customer(api_client, gen_id)
+        rd_id = self._make_reading(api_client, cust_id)
+        inv = self._make_invoice(api_client, cust_id, rd_id)
+        api_client.post(f"{API}/invoices/{inv['id']}/payment", json={"amount": 5.0})
+
+        r = api_client.delete(f"{API}/customers/{cust_id}")
+        assert r.status_code == 200, r.text
+
+        assert api_client.get(f"{API}/customers/{cust_id}").status_code == 404
+        assert api_client.get(f"{API}/invoices/{inv['id']}").status_code == 404
+        assert list(mongo_db.payments.find({"customer_id": cust_id})) == []
+        assert list(mongo_db.readings.find({"customer_id": cust_id})) == []
+
+    # 10) Regression: suspension still toggles
+    def test_regression_customer_suspension_still_toggles(self, api_client):
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        cust_id = self._make_customer(api_client, gen_id)
+        try:
+            r1 = api_client.put(f"{API}/customers/{cust_id}/suspend")
+            assert r1.status_code == 200 and r1.json()["is_suspended"] is True
+            r2 = api_client.put(f"{API}/customers/{cust_id}/suspend")
+            assert r2.status_code == 200 and r2.json()["is_suspended"] is False
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")

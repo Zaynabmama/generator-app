@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 15 backend verification: NEW endpoint DELETE /api/invoices/{invoice_id} works exactly per spec. Added 11 new tests under TestDeleteInvoice covering: 200 success with Arabic message 'تم حذف الفاتورة بنجاح'; 404 with 'الفاتورة غير موجودة' for non-existent but well-formed ObjectId; 400 with 'معرّف غير صالح' for malformed id (via global InvalidId handler); 401 without JWT and 401 with invalid JWT; cascade deletion of related payments (no orphans in db.payments); customer.current_balance recalculation to 0 when the ONLY unpaid invoice is deleted; customer.current_balance falls back to remaining_amount of most-recent unpaid invoice when others still exist; deletion isolation (other customers' invoices/payments/balances unaffected); regression on customer cascade delete; regression on suspend toggle. Result: 94/94 PASSED (100%). Full suite runs in ~22s. No regressions.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "DELETE /api/invoices/{id}", "issue": "Balance recalculation uses the most-recent unpaid invoice's remaining_amount as the customer's current_balance. This matches the write-path in POST /api/invoices and POST /api/invoices/{id}/payment (both overwrite current_balance with a single invoice's remaining). Consider migrating to sum(remaining_amount) across all unpaid/partial invoices for a customer to represent true total debt — currently the field represents 'latest invoice remaining', which can under-report actual outstanding when multiple unpaid invoices exist."},
+      {"endpoint": "DELETE /api/invoices/{id}", "issue": "Not wrapped in a MongoDB transaction; if the payments delete succeeds but the invoice delete fails, orphan state is possible. Low risk on single-replica setups."},
+      {"endpoint": "server.py L40-44", "issue": "(carried) safe_object_id() helper still defined but never called - dead code."},
+      {"endpoint": "GET /api/invoices", "issue": "(carried) status query param not whitelisted; O(N) update_one for is_overdue - prefer update_many."},
+      {"endpoint": "POST /api/expenses & POST /api/invoices/{id}/payment", "issue": "(carried) No amount>0 validation; expense_type still free-form (no Enum)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: Consider changing customer.current_balance semantics from 'latest unpaid invoice remaining' to 'sum of all unpaid/partial remaining_amount' so deleting/adding invoices doesn't hide older debts. Current DELETE endpoint matches the existing write-path convention, so it's consistent but the underlying convention may itself be off.",
+    "OPTIONAL: Wrap DELETE /api/invoices/{id} cascade (payments delete + invoice delete + customer balance update) in a single MongoDB transaction.",
+    "OPTIONAL (carried): Remove unused safe_object_id() helper in server.py L40-44.",
+    "OPTIONAL (carried): Whitelist status values on GET /api/invoices; make expense_type an Enum; validate amount>0 on payments/expenses; batch is_overdue update via update_many."
+  ],
+  "critical_code_review_comments": [
+    "server.py L585-611 DELETE /api/invoices/{invoice_id}: correctly (a) fetches invoice, returns 404 with Arabic detail if missing; (b) deletes payments by invoice_id; (c) deletes the invoice; (d) recalculates customer.current_balance from most-recent unpaid/partial invoice (0.0 if none). JWT required via api_router dependency. Invalid ObjectId falls through to global @app.exception_handler(InvalidId) -> 400.",
+    "Semantics note: current_balance is the LATEST unpaid invoice's remaining, not the total debt across all unpaid invoices. This is consistent with the create_invoice and add_payment write-paths, but may misrepresent total outstanding when multiple unpaid invoices exist. Not a bug per spec, but flagged for product review.",
+    "Route ordering: DELETE handler is defined AFTER GET /api/invoices/{invoice_id} and POST /api/invoices/{invoice_id}/payment, no shadowing risk since methods differ.",
+    "Cascade is non-transactional (motor + single delete_many + delete_one + update_one) — low risk but not atomic."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (appended TestDeleteInvoice class with 11 tests)"
+  ],
+  "success_rate": {"backend": "100% (94/94)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "None. All tests create TEST_DELINV_* customers and clean them up inline via DELETE /api/customers/{id}.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 15 added DELETE /api/invoices/{invoice_id} (server.py L585-611). It deletes the invoice + related payments (matched by invoice_id) and updates the parent customer's current_balance to the most-recent remaining unpaid invoice (or 0.0). The TestDeleteInvoice class in /app/backend/tests/backend_test.py covers all documented behaviours + auth + regression. Full suite: 94 tests, ~22s, all green. api_client fixture logs in and injects Bearer token. mongo_db fixture provided for direct collection assertions. If future iterations change balance semantics (e.g., to sum-of-remaining across invoices), update test_delete_only_unpaid_invoice_sets_customer_balance_to_zero and test_delete_unpaid_invoice_with_other_unpaid_uses_most_recent_remaining accordingly.",
+  "rca_of_issue": "Not applicable - new-feature verification (no bug to reproduce). Endpoint behaves exactly per review spec."
+}

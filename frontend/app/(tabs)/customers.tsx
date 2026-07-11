@@ -21,6 +21,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { customersAPI, generatorsAPI } from '@/src/services/api';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 export default function CustomersScreen() {
   const router = useRouter();
@@ -70,6 +71,16 @@ export default function CustomersScreen() {
     setDeleteDialogVisible(true);
   };
 
+  const handleSuspend = async (id: string) => {
+    try {
+      setMenuVisible(null);
+      const response = await customersAPI.suspend(id);
+      await fetchData();
+    } catch (error: any) {
+      Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ');
+    }
+  };
+
   const confirmDelete = async () => {
     if (!customerToDelete) return;
     try {
@@ -83,11 +94,23 @@ export default function CustomersScreen() {
   };
 
   const renderCustomer = ({ item }: any) => (
-    <Card style={styles.card}>
+    <Card style={[styles.card, item.is_suspended && styles.suspendedCard]}>
       <Card.Content>
         <View style={styles.cardHeader}>
           <View style={styles.customerInfo}>
-            <Text style={styles.customerName}>{item.name}</Text>
+            <View style={styles.nameRow}>
+              <Text style={styles.customerName}>{item.name}</Text>
+              {item.is_suspended && (
+                <Chip
+                  icon="pause-circle"
+                  style={styles.suspendedChip}
+                  textStyle={{ color: '#fff', fontSize: 11 }}
+                  compact
+                >
+                  معلق
+                </Chip>
+              )}
+            </View>
             <Text style={styles.customerPhone}>{item.phone}</Text>
           </View>
           <Menu
@@ -97,6 +120,7 @@ export default function CustomersScreen() {
               <IconButton
                 icon="dots-vertical"
                 onPress={() => setMenuVisible(item.id)}
+                testID={`menu-${item.id}`}
               />
             }
           >
@@ -106,6 +130,13 @@ export default function CustomersScreen() {
                 router.push(`/customers/${item.id}`);
               }}
               title="عرض"
+              leadingIcon="eye"
+            />
+            <Menu.Item
+              onPress={() => handleSuspend(item.id)}
+              title={item.is_suspended ? 'إعادة تفعيل' : 'تعليق العداد'}
+              leadingIcon={item.is_suspended ? 'play-circle' : 'pause-circle'}
+              testID={`suspend-${item.id}`}
             />
             <Menu.Item
               onPress={() => {
@@ -113,6 +144,8 @@ export default function CustomersScreen() {
                 handleDelete(item.id, item.name);
               }}
               title="حذف"
+              leadingIcon="delete"
+              testID={`delete-${item.id}`}
             />
           </Menu>
         </View>
@@ -133,6 +166,15 @@ export default function CustomersScreen() {
             <Text style={styles.balanceLabel}>الرصيد المتبقي:</Text>
             <Text style={styles.balanceAmount}>
               ${item.current_balance.toFixed(2)}
+            </Text>
+          </View>
+        )}
+
+        {item.is_suspended && (
+          <View style={styles.suspendedNote}>
+            <MaterialCommunityIcons name="information" size={14} color="#FF9800" />
+            <Text style={styles.suspendedText}>
+              العداد موقّف - الحساب لا يزال محفوظاً
             </Text>
           </View>
         )}
@@ -202,8 +244,16 @@ export default function CustomersScreen() {
             <Text style={{ color: '#ccc' }}>
               هل أنت متأكد من حذف المشترك &quot;{customerToDelete?.name}&quot;؟
             </Text>
-            <Text style={{ color: '#F44336', marginTop: 8, fontSize: 12 }}>
-              سيتم حذف جميع فواتير هذا المشترك وقراءاته!
+            <Text style={{ color: '#F44336', marginTop: 12, fontSize: 13, fontWeight: 'bold' }}>
+              ⚠️ سيتم حذف جميع بيانات المشترك:
+            </Text>
+            <Text style={{ color: '#ccc', marginTop: 4, fontSize: 12 }}>
+              • جميع الفواتير{'\n'}
+              • جميع قراءات العدادات{'\n'}
+              • جميع الدفعات المسجلة
+            </Text>
+            <Text style={{ color: '#4CAF50', marginTop: 12, fontSize: 12 }}>
+              💡 نصيحة: إذا كنت تريد فقط إيقاف العداد مع الاحتفاظ بالحساب، استخدم &quot;تعليق العداد&quot; بدلاً من الحذف
             </Text>
           </Dialog.Content>
           <Dialog.Actions>
@@ -213,7 +263,7 @@ export default function CustomersScreen() {
               textColor="#F44336"
               testID="confirm-delete-btn"
             >
-              حذف
+              حذف نهائياً
             </Button>
           </Dialog.Actions>
         </Dialog>
@@ -249,6 +299,34 @@ const styles = StyleSheet.create({
   card: {
     marginBottom: 16,
     backgroundColor: '#1E1E1E',
+  },
+  suspendedCard: {
+    backgroundColor: '#2A1F1F',
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF9800',
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  suspendedChip: {
+    backgroundColor: '#FF9800',
+    height: 24,
+  },
+  suspendedNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+    padding: 6,
+    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+    borderRadius: 4,
+  },
+  suspendedText: {
+    fontSize: 12,
+    color: '#FF9800',
   },
   cardHeader: {
     flexDirection: 'row',

@@ -140,6 +140,8 @@ class Customer(BaseModel):
     generator_id: str
     previous_balance: float = 0.0
     current_balance: float = 0.0  # الرصيد الحالي
+    is_suspended: bool = False  # معلق (موقّف العداد)
+    suspended_at: Optional[datetime] = None
     notes: str = ""
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -310,6 +312,30 @@ async def update_customer(customer_id: str, customer: CustomerCreate):
     
     updated = await db.customers.find_one({"_id": ObjectId(customer_id)})
     return Customer(**str_id(updated))
+
+@api_router.put("/customers/{customer_id}/suspend")
+async def suspend_customer(customer_id: str):
+    """تعليق المشترك (إيقاف العداد مع الحفاظ على الحساب)"""
+    customer = await db.customers.find_one({"_id": ObjectId(customer_id)})
+    if not customer:
+        raise HTTPException(status_code=404, detail="المشترك غير موجود")
+    
+    new_status = not customer.get('is_suspended', False)
+    update_data = {
+        "is_suspended": new_status,
+        "suspended_at": datetime.utcnow() if new_status else None,
+        "updated_at": datetime.utcnow()
+    }
+    
+    await db.customers.update_one(
+        {"_id": ObjectId(customer_id)},
+        {"$set": update_data}
+    )
+    
+    return {
+        "message": "تم تعليق المشترك" if new_status else "تم إعادة تفعيل المشترك",
+        "is_suspended": new_status
+    }
 
 @api_router.delete("/customers/{customer_id}")
 async def delete_customer(customer_id: str):
@@ -517,8 +543,7 @@ async def get_invoice(invoice_id: str):
 async def add_payment(invoice_id: str, payment: PaymentCreate):
     invoice = await db.invoices.find_one({"_id": ObjectId(invoice_id)})
     if not invoice:
-        raise HTTPException(status_code=404, detail="الفاتورة غير موجودة")
-    
+        raise HTTPException(status_code=404, detail="الفاتورة غير موجودة")    
     # Update invoice with new payment
     new_amount_paid = invoice['amount_paid'] + payment.amount
     total_with_previous = invoice['total_amount'] + invoice['previous_balance']
@@ -556,6 +581,34 @@ async def add_payment(invoice_id: str, payment: PaymentCreate):
     await db.payments.insert_one(payment_dict)
     
     return {"message": "تم تسجيل الدفعة بنجاح", "new_remaining": new_remaining}
+
+@api_router.delete("/invoices/{invoice_id}")
+async def delete_invoice(invoice_id: str):
+    """حذف الفاتورة (وحذف الدفعات المرتبطة بها)"""
+    invoice = await db.invoices.find_one({"_id": ObjectId(invoice_id)})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="الفاتورة غير موجودة")
+    
+    # Delete related payments
+    await db.payments.delete_many({"invoice_id": invoice_id})
+    
+    # Delete the invoice
+    await db.invoices.delete_one({"_id": ObjectId(invoice_id)})
+    
+    # Recalculate customer's current_balance from remaining unpaid invoices
+    customer_id = invoice['customer_id']
+    remaining_invoices = await db.invoices.find({
+        "customer_id": customer_id,
+        "status": {"$in": ["unpaid", "partial"]}
+    }).sort('created_at', -1).limit(1).to_list(1)
+    
+    new_balance = remaining_invoices[0]['remaining_amount'] if remaining_invoices else 0.0
+    await db.customers.update_one(
+        {"_id": ObjectId(customer_id)},
+        {"$set": {"current_balance": new_balance}}
+    )
+    
+    return {"message": "تم حذف الفاتورة بنجاح"}
 
 # ==================== Expense APIs ====================
 

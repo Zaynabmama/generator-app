@@ -37,6 +37,7 @@ export default function InvoiceDetailScreen() {
   const [paymentDialogVisible, setPaymentDialogVisible] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [autoSendTriggered, setAutoSendTriggered] = useState(false);
+  const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
 
   const BUSINESS_INFO = {
     name: 'أبو عباس للإنارة',
@@ -440,6 +441,19 @@ export default function InvoiceDetailScreen() {
     }
   };
 
+  const confirmDeleteInvoice = async () => {
+    try {
+      setSending(true);
+      await invoicesAPI.delete(invoice.id);
+      setDeleteDialogVisible(false);
+      router.back();
+    } catch (error: any) {
+      Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحذف');
+    } finally {
+      setSending(false);
+    }
+  };
+
   const formatPhoneForWhatsApp = (phone: string) => {
     // Remove all non-digits
     let cleaned = phone.replace(/\D/g, '');
@@ -708,6 +722,19 @@ ${BUSINESS_INFO.phones}
           >
             طباعة
           </Button>
+
+          <Button
+            mode="outlined"
+            icon="delete"
+            onPress={() => setDeleteDialogVisible(true)}
+            disabled={sending}
+            style={[styles.actionButton, { borderColor: '#F44336' }]}
+            contentStyle={styles.buttonContent}
+            textColor="#F44336"
+            testID="delete-invoice-detail-btn"
+          >
+            حذف الفاتورة
+          </Button>
         </View>
       </ScrollView>
 
@@ -736,6 +763,32 @@ ${BUSINESS_INFO.phones}
           <Dialog.Actions>
             <Button onPress={() => setPaymentDialogVisible(false)}>إلغاء</Button>
             <Button onPress={submitPayment} loading={sending}>تسجيل</Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        <Dialog
+          visible={deleteDialogVisible}
+          onDismiss={() => setDeleteDialogVisible(false)}
+        >
+          <Dialog.Title>تأكيد حذف الفاتورة</Dialog.Title>
+          <Dialog.Content>
+            <Text style={{ color: '#ccc' }}>
+              هل أنت متأكد من حذف الفاتورة #{invoice?.invoice_number}؟
+            </Text>
+            <Text style={{ color: '#F44336', marginTop: 12, fontSize: 12 }}>
+              ⚠️ سيتم حذف جميع الدفعات المرتبطة بها
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setDeleteDialogVisible(false)}>إلغاء</Button>
+            <Button
+              onPress={confirmDeleteInvoice}
+              textColor="#F44336"
+              loading={sending}
+              testID="confirm-delete-invoice-detail-btn"
+            >
+              حذف
+            </Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>

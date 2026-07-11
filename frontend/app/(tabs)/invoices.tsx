@@ -37,6 +37,8 @@ export default function InvoicesScreen() {
   const [paymentDialogVisible, setPaymentDialogVisible] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
+  const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
+  const [invoiceToDelete, setInvoiceToDelete] = useState<any>(null);
 
   // Apply filter from route params (from dashboard)
   useEffect(() => {
@@ -159,6 +161,23 @@ export default function InvoicesScreen() {
     }
   };
 
+  const handleDeleteInvoice = (invoice: any) => {
+    setInvoiceToDelete(invoice);
+    setDeleteDialogVisible(true);
+  };
+
+  const confirmDeleteInvoice = async () => {
+    if (!invoiceToDelete) return;
+    try {
+      await invoicesAPI.delete(invoiceToDelete.id);
+      setDeleteDialogVisible(false);
+      setInvoiceToDelete(null);
+      await fetchData();
+    } catch (error: any) {
+      Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحذف');
+    }
+  };
+
   const renderInvoice = ({ item }: any) => (
     <TouchableOpacity onPress={() => router.push(`/invoices/${item.id}`)}>
       <Card style={styles.card}>
@@ -177,12 +196,22 @@ export default function InvoicesScreen() {
               </View>
               <Text style={styles.month}>الشهر: {item.month}</Text>
             </View>
-            <Chip
-              style={[styles.statusChip, { backgroundColor: getStatusColor(item.status) }]}
-              textStyle={{ color: '#fff' }}
-            >
-              {getStatusText(item.status)}
-            </Chip>
+            <View style={styles.actionsRow}>
+              <Chip
+                style={[styles.statusChip, { backgroundColor: getStatusColor(item.status) }]}
+                textStyle={{ color: '#fff' }}
+                compact
+              >
+                {getStatusText(item.status)}
+              </Chip>
+              <IconButton
+                icon="delete"
+                iconColor="#F44336"
+                size={20}
+                onPress={() => handleDeleteInvoice(item)}
+                testID={`delete-invoice-${item.id}`}
+              />
+            </View>
           </View>
 
           <View style={styles.divider} />
@@ -358,6 +387,31 @@ export default function InvoicesScreen() {
             <Button onPress={submitPayment}>تسجيل</Button>
           </Dialog.Actions>
         </Dialog>
+
+        <Dialog
+          visible={deleteDialogVisible}
+          onDismiss={() => setDeleteDialogVisible(false)}
+        >
+          <Dialog.Title>تأكيد حذف الفاتورة</Dialog.Title>
+          <Dialog.Content>
+            <Text style={{ color: '#ccc' }}>
+              هل أنت متأكد من حذف الفاتورة #{invoiceToDelete?.invoice_number || ''}؟
+            </Text>
+            <Text style={{ color: '#F44336', marginTop: 12, fontSize: 12 }}>
+              ⚠️ سيتم حذف جميع الدفعات المرتبطة بها
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setDeleteDialogVisible(false)}>إلغاء</Button>
+            <Button
+              onPress={confirmDeleteInvoice}
+              textColor="#F44336"
+              testID="confirm-delete-invoice-btn"
+            >
+              حذف
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
       </Portal>
     </SafeAreaView>
   );
@@ -432,6 +486,11 @@ const styles = StyleSheet.create({
   },
   statusChip: {
     height: 28,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   divider: {
     height: 1,

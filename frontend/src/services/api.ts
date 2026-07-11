@@ -49,6 +49,7 @@ export const customersAPI = {
   create: (data: any) => api.post('/customers', data),
   update: (id: string, data: any) => api.put(`/customers/${id}`, data),
   delete: (id: string) => api.delete(`/customers/${id}`),
+  suspend: (id: string) => api.put(`/customers/${id}/suspend`, {}),
 };
 
 // Generators
@@ -74,6 +75,7 @@ export const invoicesAPI = {
   getOne: (id: string) => api.get(`/invoices/${id}`),
   create: (data: any) => api.post('/invoices', data),
   addPayment: (id: string, data: any) => api.post(`/invoices/${id}/payment`, data),
+  delete: (id: string) => api.delete(`/invoices/${id}`),
 };
 
 // Expenses
