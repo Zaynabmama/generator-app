@@ -35,7 +35,7 @@ export default function CreateInvoiceScreen() {
   const [invoicePreview, setInvoicePreview] = useState<any>(null);
 
   // Pricing constants
-  const CONSUMPTION_RATE = 0.15; // USD per kWh
+  const CONSUMPTION_RATE = 0.85; // USD per kWh
 
   useEffect(() => {
     fetchCustomers();
