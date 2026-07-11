@@ -199,7 +199,7 @@ export default function AddCustomerScreen() {
               )}
 
               <TextInput
-                label="الرصيد السابق (دينار)"
+                label="الرصيد السابق ($)"
                 value={formData.previous_balance}
                 onChangeText={(text) =>
                   setFormData({ ...formData, previous_balance: text })
