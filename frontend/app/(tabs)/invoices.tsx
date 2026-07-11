@@ -33,6 +33,7 @@ export default function InvoicesScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
   const [showOverdueOnly, setShowOverdueOnly] = useState(false);
+  const [showUnpaidAll, setShowUnpaidAll] = useState(false);
   const [paymentDialogVisible, setPaymentDialogVisible] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
@@ -40,10 +41,13 @@ export default function InvoicesScreen() {
   // Apply filter from route params (from dashboard)
   useEffect(() => {
     if (params.filter === 'unpaid') {
-      setSelectedStatus('unpaid');
+      // Show all unpaid (unpaid + partial) to match dashboard count
+      setSelectedStatus(null);
+      setShowUnpaidAll(true);
       setShowOverdueOnly(false);
     } else if (params.filter === 'overdue') {
       setShowOverdueOnly(true);
+      setShowUnpaidAll(false);
       setSelectedStatus(null);
     }
   }, [params.filter]);
@@ -63,6 +67,13 @@ export default function InvoicesScreen() {
       // Filter by overdue
       if (showOverdueOnly) {
         filteredInvoices = filteredInvoices.filter((inv: any) => inv.is_overdue);
+      }
+
+      // Filter by unpaid+partial (from dashboard)
+      if (showUnpaidAll) {
+        filteredInvoices = filteredInvoices.filter(
+          (inv: any) => inv.status === 'unpaid' || inv.status === 'partial'
+        );
       }
 
       // Filter by customer name if searching
@@ -88,7 +99,7 @@ export default function InvoicesScreen() {
 
   useEffect(() => {
     fetchData();
-  }, [searchQuery, selectedStatus, showOverdueOnly]);
+  }, [searchQuery, selectedStatus, showOverdueOnly, showUnpaidAll]);
 
   const getCustomerName = (customerId: string) => {
     const customer = customers.find((c) => c.id === customerId);
@@ -258,36 +269,36 @@ export default function InvoicesScreen() {
         contentContainerStyle={styles.filterContainer}
       >
         <Chip
-          selected={selectedStatus === null && !showOverdueOnly}
-          onPress={() => { setSelectedStatus(null); setShowOverdueOnly(false); }}
+          selected={selectedStatus === null && !showOverdueOnly && !showUnpaidAll}
+          onPress={() => { setSelectedStatus(null); setShowOverdueOnly(false); setShowUnpaidAll(false); }}
           style={styles.filterChip}
         >
           الكل
         </Chip>
         <Chip
-          selected={selectedStatus === 'unpaid'}
-          onPress={() => { setSelectedStatus('unpaid'); setShowOverdueOnly(false); }}
+          selected={showUnpaidAll}
+          onPress={() => { setSelectedStatus(null); setShowOverdueOnly(false); setShowUnpaidAll(true); }}
           style={styles.filterChip}
         >
           غير مدفوعة
         </Chip>
         <Chip
           selected={selectedStatus === 'partial'}
-          onPress={() => { setSelectedStatus('partial'); setShowOverdueOnly(false); }}
+          onPress={() => { setSelectedStatus('partial'); setShowOverdueOnly(false); setShowUnpaidAll(false); }}
           style={styles.filterChip}
         >
           جزئية
         </Chip>
         <Chip
           selected={selectedStatus === 'paid'}
-          onPress={() => { setSelectedStatus('paid'); setShowOverdueOnly(false); }}
+          onPress={() => { setSelectedStatus('paid'); setShowOverdueOnly(false); setShowUnpaidAll(false); }}
           style={styles.filterChip}
         >
           مدفوعة
         </Chip>
         <Chip
           selected={showOverdueOnly}
-          onPress={() => { setShowOverdueOnly(true); setSelectedStatus(null); }}
+          onPress={() => { setShowOverdueOnly(true); setSelectedStatus(null); setShowUnpaidAll(false); }}
           style={styles.filterChip}
           icon="clock-alert"
         >

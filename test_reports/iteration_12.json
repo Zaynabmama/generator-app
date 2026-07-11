@@ -1,0 +1,45 @@
+{
+  "summary": "Backend-only regression verification after Iteration 12 (frontend-only follow-up: dashboard 'unpaid invoices' card drilldown now filters unpaid+partial together to match the dashboard badge count semantic). Backend has ZERO changes; goal was to confirm no regressions and that the endpoints the frontend fix relies on still work correctly. Ran full pytest suite: 51/51 PASSED in 11.12s. Additionally spot-checked the exact endpoints the fix depends on against the live public URL: (1) GET /api/stats/dashboard returns unpaid_invoices=11 (unpaid+partial via $in) and overdue_count=0 with all documented fields. (2) GET /api/invoices?status=unpaid returns 8 invoices, all with status='unpaid' and is_overdue present. (3) GET /api/invoices?status=partial returns 3 invoices with status='partial'. (4) GET /api/invoices (no filter) returns 13 items with 11 having status in {unpaid,partial} = matches dashboard.unpaid_invoices. Semantic alignment confirmed: 8 (unpaid) + 3 (partial) = 11 == dashboard.unpaid_invoices. No backend regressions.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/invoices", "issue": "status query param is a free-form string; no whitelist (unpaid|partial|paid). Invalid values silently return []. Non-blocking. Carried."},
+      {"endpoint": "GET /api/invoices", "issue": "is_overdue is derived on every list call by scanning matching invoices and updating them individually (N update_one calls per request). Prefer a single update_many({status:{$in:[unpaid,partial]},due_date:{$lt:now}},{$set:{is_overdue:true}}) or a scheduled job. Carried."},
+      {"endpoint": "POST /api/expenses", "issue": "expense_type still a free-form string (no Enum). Carried."},
+      {"endpoint": "POST /api/expenses & POST /api/invoices/{id}/payment", "issue": "No amount>0 validation. Carried."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "None required for this iteration - backend was not modified and no regressions were found.",
+    "(non-blocking, carried) Whitelist status values on GET /api/invoices (return 400 on invalid). If the frontend now uses a combined unpaid+partial filter, consider supporting comma-separated statuses (e.g., ?status=unpaid,partial) server-side to avoid two round-trips or client-side merging.",
+    "(non-blocking, carried) Optimize is_overdue update in GET /api/invoices to a single update_many, or move to a scheduled task.",
+    "(non-blocking, carried) Make expense_type an Enum; validate amount>0 on POST /api/expenses and POST /api/invoices/{id}/payment.",
+    "(non-blocking, carried) Wrap DELETE /api/customers/{id} cascade in a MongoDB transaction; make invoice_number generation atomic (findOneAndUpdate on a counters doc).",
+    "(non-blocking, carried) Move hardcoded admin credentials (server.py L154-155) to env vars with bcrypt hash."
+  ],
+  "critical_code_review_comments": [
+    "server.py L666-729 (/stats/dashboard.unpaid_invoices): counts status:{$in:[unpaid,partial]} = 11. The Iteration 12 frontend fix now aligns the drilldown to also show unpaid+partial, resolving the previously-flagged semantic mismatch between the badge and the drilldown list.",
+    "server.py L399-425 (GET /api/invoices): supports ?status=unpaid and ?status=partial independently. Since the frontend must now merge both, consider supporting ?status=unpaid,partial server-side to reduce round-trips (currently requires 2 calls or client-side filter on full list).",
+    "server.py L417-423 (carried): On every list request, invoices past due_date get individually updated with update_one. Correct but O(N) writes per read; prefer update_many once.",
+    "server.py L154-155 (carried): admin credentials hardcoded.",
+    "server.py L129 (carried): ExpenseCreate docstring comment omits 'oil' expense_type though it is accepted at runtime and used by dashboard.",
+    "server.py: no additional issues introduced this iteration (no diff)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (51/51)", "frontend": "not tested (backend-only request per E1)"},
+  "seed_data_creation": "None - existing tests create and clean up TEST_* records inline.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration 12 was a purely frontend follow-up (unpaid card drilldown now shows unpaid+partial to match the dashboard badge). Backend was not touched. All 51 backend regression tests still green and the semantic alignment is confirmed via live data: dashboard.unpaid_invoices=11 == GET /api/invoices?status=unpaid (8) + GET /api/invoices?status=partial (3). If E1 later requests frontend UI testing: (1) tap 'فواتير غير مدفوعة' card -> invoices list must show BOTH unpaid and partial (11 items in the sample data), (2) tap 'فواتير متأخرة' card -> invoices filtered client-side by is_overdue=true (0 in sample), (3) both cards keep testID and >=44x44 touch targets with opacity feedback, (4) exclamation icon remains visible after TouchableOpacity wrapping. Consider a future enhancement: add server-side ?status=unpaid,partial support so the drilldown can be a single API call.",
+  "rca_of_issue": "N/A - Iteration 12 was a frontend-only alignment (drilldown filter widened from status=unpaid to status IN {unpaid, partial}) to match the pre-existing backend semantic of dashboard.unpaid_invoices. Backend was intentionally not modified; regression confirms nothing broke."
+}
