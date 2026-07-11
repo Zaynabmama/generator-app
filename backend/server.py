@@ -469,6 +469,7 @@ async def add_payment(invoice_id: str, payment: PaymentCreate):
     # Record payment
     payment_dict = payment.dict()
     payment_dict['invoice_id'] = invoice_id
+    payment_dict['customer_id'] = invoice['customer_id']
     payment_dict['created_at'] = datetime.utcnow()
     await db.payments.insert_one(payment_dict)
     

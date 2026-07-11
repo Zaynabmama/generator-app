@@ -1,0 +1,42 @@
+{
+  "summary": "Backend-only verification of Iteration 9 fix: add_payment now stores customer_id on payment docs (server.py L472), enabling DELETE /api/customers/{id} to cascade-delete payments. Added TestPaymentCascadeDelete (3 tests) using direct pymongo verification; full suite 44/44 PASSED in 10.71s. Verified: (1) POST /api/invoices/{id}/payment persists customer_id on the payments collection doc (queried via pymongo). (2) After create customer -> reading -> invoice -> 2 payments -> DELETE customer: payments.find({customer_id})=[] AND payments.find({invoice_id})=[] - no orphans. (3) Deleting customer A does NOT remove customer B's payment (isolation confirmed). Regression: all previous test classes still green (auth MS/Ms28796610**, generators=3 seed, dashboard, customer amperage removal, full flow $0.85/kWh, monthly fee $5, payment status transitions, /readings/latest, invoice_number 5-digit sequential>=01710, /reports/*).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/invoices/{id}/payment", "issue": "Still no validation that amount > 0; still no overpayment guard; customer.current_balance still set to per-invoice remaining rather than aggregated across all unpaid invoices. Carried over from iter 7/8."},
+      {"endpoint": "POST /api/invoices", "issue": "total_amount still trusted from client; invoice_number generation still non-atomic (concurrent creates could collide). Carried over from iter 7/8."},
+      {"endpoint": "DELETE /api/customers/{id}", "issue": "Operations are not atomic - failure between subscriber_count decrement and cascade deletes could leave inconsistent state. Consider MongoDB transactions."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(non-blocking, carried) Backend hardening: validate payment.amount > 0, reject overpayment, aggregate customer.current_balance across all unpaid/partial invoices, make invoice_number generation atomic (e.g., counters collection with findOneAndUpdate $inc).",
+    "(non-blocking) Consider wrapping delete_customer cascade in a MongoDB transaction for atomicity.",
+    "(non-blocking) Admin credentials still hardcoded in server.py L154-155."
+  ],
+  "critical_code_review_comments": [
+    "server.py L470-474: fix looks correct - payment_dict now includes both invoice_id and customer_id, so db.payments.delete_many({'customer_id': customer_id}) at L247 will actually match. Verified end-to-end via direct pymongo queries.",
+    "server.py L232-250 delete_customer: cascades are best-effort sequential ops; a mid-way failure could orphan data or leave subscriber_count wrong. Consider transaction / reorder.",
+    "server.py L459-462 (carried): customer.current_balance = new_remaining is per-invoice, not aggregated across all unpaid invoices.",
+    "server.py L434-476 add_payment (carried): no amount>0 check, no overpayment check.",
+    "server.py L353-397 create_invoice (carried): total_amount client-supplied; invoice_number generation non-atomic."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (added pymongo import + TestPaymentCascadeDelete class with 3 tests directly querying the payments collection)"
+  ],
+  "success_rate": {"backend": "100% (44/44)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "New tests create TEST_PAYCASCADE_* customers with readings+invoices+payments, then delete customers. Because DELETE cascades customers/invoices/readings/payments, no orphan TEST data remains. Isolation test uses try/finally to clean up customer B.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Payment cascade delete is now fully working AND covered by TestPaymentCascadeDelete (verified by direct pymongo queries on db.payments since there is no GET /api/payments endpoint). If a future iteration adds a GET /api/payments endpoint, replace pymongo calls with API GETs. Backend contract otherwise stable. Known non-blocking gaps still open: no amount>0/overpayment validation on POST /api/invoices/{id}/payment; customer.current_balance is per-invoice not aggregated; invoice_number generation is non-atomic; delete_customer cascade is non-transactional.",
+  "rca_of_issue": "Previous iteration reported that although DELETE /api/customers/{id} called db.payments.delete_many({'customer_id': customer_id}), payment documents were inserted by add_payment WITHOUT a customer_id field - so the delete matched 0 docs and payments became orphaned after the parent customer and invoice were deleted. Iteration 9 fix: add_payment now sets payment_dict['customer_id'] = invoice['customer_id'] before insert (server.py L472). Verified via 3 new tests that (a) new payments have customer_id persisted, (b) cascade delete removes payments matched by both customer_id and invoice_id, (c) other customers' payments are untouched. Fix is correct and complete for the stated problem."
+}

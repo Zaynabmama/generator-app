@@ -15,6 +15,8 @@ import uuid
 import pytest
 import requests
 from datetime import datetime
+from pymongo import MongoClient
+from bson import ObjectId
 
 BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL") or os.environ.get("EXPO_BACKEND_URL")
 if not BASE_URL:
@@ -979,3 +981,167 @@ class TestCustomerCascadeDelete:
             assert got.json()["customer_id"] == cust_id
         finally:
             api_client.delete(f"{API}/customers/{cust_id}")
+
+
+# ==================== Iteration 9: Payment cascade delete fix ====================
+
+MONGO_URL = None
+DB_NAME = None
+with open("/app/backend/.env") as _f:
+    for _l in _f:
+        _l = _l.strip()
+        if _l.startswith("MONGO_URL="):
+            MONGO_URL = _l.split("=", 1)[1].strip().strip('"')
+        elif _l.startswith("DB_NAME="):
+            DB_NAME = _l.split("=", 1)[1].strip().strip('"')
+
+
+@pytest.fixture(scope="module")
+def mongo_db():
+    assert MONGO_URL and DB_NAME, "Mongo config missing"
+    client = MongoClient(MONGO_URL)
+    yield client[DB_NAME]
+    client.close()
+
+
+class TestPaymentCascadeDelete:
+    """Iteration 9 fix: add_payment must persist customer_id on payment doc so
+    that DELETE /api/customers/{id} cascade-deletes payments (no orphans)."""
+
+    def _make_customer(self, api_client, gen_id):
+        payload = {
+            "name": f"TEST_PAYCASCADE_{uuid.uuid4().hex[:6]}",
+            "phone": "07788888888",
+            "address": "TEST",
+            "area": "المسعودية",
+            "meter_number": f"TEST-{uuid.uuid4().hex[:6]}",
+            "generator_id": gen_id,
+            "previous_balance": 0.0,
+        }
+        r = api_client.post(f"{API}/customers", json=payload)
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    def _make_reading(self, api_client, cust_id):
+        r = api_client.post(f"{API}/readings", json={
+            "customer_id": cust_id,
+            "previous_reading": 0.0,
+            "current_reading": 100.0,
+            "reading_date": datetime.utcnow().isoformat(),
+        })
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    def _make_invoice(self, api_client, cust_id, reading_id):
+        r = api_client.post(f"{API}/invoices", json={
+            "customer_id": cust_id,
+            "reading_id": reading_id,
+            "month": datetime.utcnow().strftime("%Y-%m"),
+            "consumption_charge": 85.0,
+            "monthly_fee": 5.0,
+            "total_amount": 90.0,
+            "previous_balance": 0.0,
+            "amount_paid": 0.0,
+        })
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    def test_add_payment_persists_customer_id_on_payment_doc(self, api_client, mongo_db):
+        """The fix under review: payment_dict['customer_id'] must be set on insert."""
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        cust_id = self._make_customer(api_client, gen_id)
+        try:
+            reading_id = self._make_reading(api_client, cust_id)
+            invoice_id = self._make_invoice(api_client, cust_id, reading_id)
+
+            pr = api_client.post(
+                f"{API}/invoices/{invoice_id}/payment",
+                json={"amount": 30.0, "notes": "TEST_PAYCASCADE"},
+            )
+            assert pr.status_code == 200, pr.text
+
+            # Directly query the payments collection
+            payment_docs = list(mongo_db.payments.find({"invoice_id": invoice_id}))
+            assert len(payment_docs) == 1, f"Expected 1 payment, got {len(payment_docs)}"
+            p = payment_docs[0]
+            assert "customer_id" in p, f"customer_id NOT persisted on payment: {p}"
+            assert p["customer_id"] == cust_id, (
+                f"customer_id mismatch: expected {cust_id}, got {p.get('customer_id')}"
+            )
+            assert p["amount"] == 30.0
+            assert p["invoice_id"] == invoice_id
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    def test_delete_customer_removes_all_payments(self, api_client, mongo_db):
+        """Full cascade: customer -> invoice -> payment(s), then DELETE customer
+        must remove all payments. Verify via direct mongo query."""
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        cust_id = self._make_customer(api_client, gen_id)
+
+        reading_id = self._make_reading(api_client, cust_id)
+        invoice_id = self._make_invoice(api_client, cust_id, reading_id)
+
+        # 2 partial payments
+        p1 = api_client.post(f"{API}/invoices/{invoice_id}/payment",
+                             json={"amount": 20.0})
+        p2 = api_client.post(f"{API}/invoices/{invoice_id}/payment",
+                             json={"amount": 25.0})
+        assert p1.status_code == 200 and p2.status_code == 200
+
+        # Sanity: 2 payment docs exist with the customer_id
+        pre = list(mongo_db.payments.find({"customer_id": cust_id}))
+        assert len(pre) == 2, f"Expected 2 payments before delete, got {len(pre)}"
+
+        # DELETE the customer
+        d = api_client.delete(f"{API}/customers/{cust_id}")
+        assert d.status_code == 200, d.text
+
+        # No payments should remain for this customer
+        post_by_cust = list(mongo_db.payments.find({"customer_id": cust_id}))
+        assert post_by_cust == [], f"Orphan payments by customer_id: {post_by_cust}"
+
+        # And no payments referencing the now-deleted invoice either
+        post_by_inv = list(mongo_db.payments.find({"invoice_id": invoice_id}))
+        assert post_by_inv == [], f"Orphan payments by invoice_id: {post_by_inv}"
+
+    def test_delete_customer_does_not_touch_other_customers_payments(
+        self, api_client, mongo_db
+    ):
+        """Isolation: deleting customer A must not delete customer B's payments."""
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+
+        cust_a = self._make_customer(api_client, gen_id)
+        cust_b = self._make_customer(api_client, gen_id)
+
+        try:
+            rd_a = self._make_reading(api_client, cust_a)
+            rd_b = self._make_reading(api_client, cust_b)
+            inv_a = self._make_invoice(api_client, cust_a, rd_a)
+            inv_b = self._make_invoice(api_client, cust_b, rd_b)
+
+            assert api_client.post(f"{API}/invoices/{inv_a}/payment",
+                                   json={"amount": 10.0}).status_code == 200
+            assert api_client.post(f"{API}/invoices/{inv_b}/payment",
+                                   json={"amount": 15.0}).status_code == 200
+
+            # Delete A
+            assert api_client.delete(f"{API}/customers/{cust_a}").status_code == 200
+
+            # A's payments gone
+            a_pays = list(mongo_db.payments.find({"customer_id": cust_a}))
+            assert a_pays == [], f"A payments not deleted: {a_pays}"
+
+            # B's payments still there
+            b_pays = list(mongo_db.payments.find({"customer_id": cust_b}))
+            assert len(b_pays) == 1, f"B payments lost: {b_pays}"
+            assert b_pays[0]["amount"] == 15.0
+            assert b_pays[0]["invoice_id"] == inv_b
+        finally:
+            # cleanup B (will also cascade its payment)
+            api_client.delete(f"{API}/customers/{cust_b}")
+            # confirm cleanup
+            assert list(mongo_db.payments.find({"customer_id": cust_b})) == []
