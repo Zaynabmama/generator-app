@@ -67,6 +67,7 @@ export const readingsAPI = {
   getOne: (id: string) => api.get(`/readings/${id}`),
   getLatest: (customerId: string) => api.get(`/readings/latest/${customerId}`),
   create: (data: any) => api.post('/readings', data),
+  reset: (scope: 'month' | 'all' = 'month') => api.post(`/readings/reset?scope=${scope}`, {}),
 };
 
 // Invoices

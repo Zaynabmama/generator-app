@@ -449,6 +449,39 @@ async def get_latest_reading(customer_id: str):
         "reading_date": reading.get('reading_date')
     }
 
+@api_router.post("/readings/reset")
+async def reset_readings(scope: str = "month"):
+    """تصفير قراءات العدادات
+    scope: 'month' = الشهر الحالي فقط، 'all' = كل القراءات
+    """
+    now = datetime.utcnow()
+    if scope == "month":
+        year = now.year
+        month_num = now.month
+        start_date = datetime(year, month_num, 1)
+        if month_num == 12:
+            end_date = datetime(year + 1, 1, 1)
+        else:
+            end_date = datetime(year, month_num + 1, 1)
+        
+        result = await db.readings.delete_many({
+            "reading_date": {"$gte": start_date, "$lt": end_date}
+        })
+        return {
+            "message": f"تم تصفير قراءات الشهر الحالي ({result.deleted_count} قراءة)",
+            "deleted_count": result.deleted_count,
+            "scope": "month"
+        }
+    elif scope == "all":
+        result = await db.readings.delete_many({})
+        return {
+            "message": f"تم تصفير جميع القراءات ({result.deleted_count} قراءة)",
+            "deleted_count": result.deleted_count,
+            "scope": "all"
+        }
+    else:
+        raise HTTPException(status_code=400, detail="نطاق غير صالح. استخدم 'month' أو 'all'")
+
 @api_router.get("/readings/{reading_id}", response_model=MeterReading)
 async def get_reading(reading_id: str):
     reading = await db.readings.find_one({"_id": ObjectId(reading_id)})

@@ -21,7 +21,7 @@ import {
   SegmentedButtons,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { expensesAPI, dashboardAPI } from '@/src/services/api';
+import { expensesAPI, dashboardAPI, readingsAPI } from '@/src/services/api';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 export default function ExpensesScreen() {
@@ -32,6 +32,8 @@ export default function ExpensesScreen() {
   const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState<any>(null);
   const [selectedType, setSelectedType] = useState<string | null>(null);
+  const [resetDialogVisible, setResetDialogVisible] = useState(false);
+  const [resetScope, setResetScope] = useState<'month' | 'all'>('month');
   const [formData, setFormData] = useState({
     expense_type: 'fuel',
     amount: '',
@@ -123,6 +125,22 @@ export default function ExpensesScreen() {
     }
   };
 
+  const handleResetKwh = () => {
+    setResetScope('month');
+    setResetDialogVisible(true);
+  };
+
+  const confirmReset = async () => {
+    try {
+      const response = await readingsAPI.reset(resetScope);
+      setResetDialogVisible(false);
+      await fetchData();
+      Alert.alert('نجاح', response.data.message);
+    } catch (error: any) {
+      Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء التصفير');
+    }
+  };
+
   const renderExpense = ({ item }: any) => {
     const typeInfo = expenseTypes[item.expense_type] || expenseTypes.other;
     return (
@@ -176,7 +194,19 @@ export default function ExpensesScreen() {
         <View>
           <Card style={styles.summaryCard}>
             <Card.Content>
-              <Text style={styles.summaryTitle}>ملخص الشهر الحالي</Text>
+              <View style={styles.summaryHeader}>
+                <Text style={styles.summaryTitle}>ملخص الشهر الحالي</Text>
+                <Button
+                  mode="text"
+                  icon="restart"
+                  onPress={handleResetKwh}
+                  textColor="#FFC107"
+                  compact
+                  testID="reset-kwh-btn"
+                >
+                  تصفير الكيلوواط
+                </Button>
+              </View>
               <View style={styles.statsGrid}>
                 <View style={[styles.statBox, { backgroundColor: '#FFC107' }]}>
                   <MaterialCommunityIcons name="lightning-bolt" size={28} color="#000" />
@@ -377,6 +407,53 @@ export default function ExpensesScreen() {
             </Button>
           </Dialog.Actions>
         </Dialog>
+
+        {/* Reset kWh Confirmation */}
+        <Dialog
+          visible={resetDialogVisible}
+          onDismiss={() => setResetDialogVisible(false)}
+        >
+          <Dialog.Title>تصفير عداد الكيلوواط</Dialog.Title>
+          <Dialog.Content>
+            <Text style={{ color: '#ccc', marginBottom: 12 }}>
+              اختر نطاق التصفير:
+            </Text>
+            <View style={styles.resetOptions}>
+              <Chip
+                selected={resetScope === 'month'}
+                onPress={() => setResetScope('month')}
+                style={styles.resetChip}
+                icon="calendar-month"
+              >
+                الشهر الحالي فقط
+              </Chip>
+              <Chip
+                selected={resetScope === 'all'}
+                onPress={() => setResetScope('all')}
+                style={styles.resetChip}
+                icon="delete-sweep"
+              >
+                جميع القراءات
+              </Chip>
+            </View>
+            <Text style={{ color: '#F44336', marginTop: 12, fontSize: 12 }}>
+              ⚠️ سيتم حذف قراءات العدادات{'\n'}
+              {resetScope === 'month'
+                ? 'لهذا الشهر فقط. القراءات الأقدم ستبقى محفوظة.'
+                : 'كل القراءات نهائياً!'}
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setResetDialogVisible(false)}>إلغاء</Button>
+            <Button
+              onPress={confirmReset}
+              textColor="#FF9800"
+              testID="confirm-reset-btn"
+            >
+              تصفير
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
       </Portal>
     </SafeAreaView>
   );
@@ -408,6 +485,20 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
     marginBottom: 16,
+  },
+  summaryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  resetOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  resetChip: {
+    marginRight: 0,
   },
   statsGrid: {
     flexDirection: 'row',

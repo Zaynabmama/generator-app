@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 16 backend verification: NEW endpoint POST /api/readings/reset (server.py L452-483) fully verified. Added 11 tests under TestResetReadings covering: 401 without JWT and 401 with invalid JWT; 400 with Arabic detail 'نطاق غير صالح ...' for scope=invalid and scope=<empty>; default scope='month' when no query param; scope='month' deletes only current UTC-calendar-month readings and preserves previous-month readings; scope='month' brings GET /api/stats/dashboard.total_monthly_kwh down to 0 for a freshly-seeded customer; scope='all' deletes every reading (GET /api/readings returns [] and Mongo readings collection empty); scope='month' does NOT touch customers or invoices; readings still writable after 'all' reset (regression); dashboard shape intact after resets. Response shape verified: {message, deleted_count:int, scope:'month'|'all'}. Full suite: 105/105 PASSED (100%) in ~25s. No regressions across auth, customers, generators, readings, invoices, payments, expenses, dashboard.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/readings/reset", "issue": "Uses datetime.utcnow() with naive datetimes and calendar-month bucketing. If MongoDB reading_date is stored in a different TZ (e.g., server local), month-boundary edge cases could over/under-delete near midnight UTC. Current codebase stores UTC everywhere so it's fine, but a tz-aware helper would be safer."},
+      {"endpoint": "POST /api/readings/reset", "issue": "Destructive endpoint accepts no confirmation token/csrf; JWT is the only guard. Consider requiring an explicit body flag like {\"confirm\": true} to prevent accidental client-side triggers."},
+      {"endpoint": "POST /api/readings/reset", "issue": "scope is a raw string. Prefer Literal['month','all'] or Enum so FastAPI returns 422 automatically and OpenAPI documents the allowed values. Current implementation returns a nice Arabic 400 instead — acceptable but less discoverable."},
+      {"endpoint": "POST /api/readings/reset", "issue": "Deleting readings does NOT recalculate customer.current_balance or invalidate invoices computed from those readings. Depending on product intent, resetting the kWh counter while leaving invoices intact could confuse users. Flag for product review, not a bug per spec."},
+      {"endpoint": "server.py L40-44 safe_object_id", "issue": "(carried) dead code — still unused."},
+      {"endpoint": "GET /api/invoices", "issue": "(carried) status query param not whitelisted; is_overdue update loop is O(N) update_one — prefer update_many."},
+      {"endpoint": "POST /api/expenses & POST /api/invoices/{id}/payment", "issue": "(carried) No amount>0 validation; expense_type still free-form (no Enum)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: Change scope param to Literal['month','all'] / Enum for auto 422 + OpenAPI docs.",
+    "OPTIONAL: Require an explicit confirmation flag (body {\"confirm\": true}) on this destructive endpoint.",
+    "OPTIONAL: Decide product-side whether resetting readings should also recompute customer balances / mark related invoices, or whether that separation is intentional.",
+    "OPTIONAL (carried): Remove unused safe_object_id(); whitelist invoice status filter; enum expense_type; validate amount>0; batch is_overdue via update_many."
+  ],
+  "critical_code_review_comments": [
+    "server.py L452-483 POST /api/readings/reset: correctly (a) computes UTC current-month [start_date, end_date) window; (b) for scope='month' deletes readings whose reading_date is within that window and returns {message, deleted_count, scope:'month'}; (c) for scope='all' deletes everything and returns {message, deleted_count, scope:'all'}; (d) for anything else raises 400 with detail 'نطاق غير صالح. استخدم month أو all'. JWT required via api_router dependency.",
+    "Route ordering: POST /api/readings/reset is defined BEFORE GET /api/readings/{reading_id}, so no ObjectId parsing shadows the string 'reset' — verified via tests (no unexpected 400/404).",
+    "Only touches db.readings collection — non-destructive w.r.t. customers, invoices, payments, expenses (regression-tested)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (appended TestResetReadings class with 11 tests)"
+  ],
+  "success_rate": {"backend": "100% (105/105)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "None. All tests create TEST_RESET_* customers and clean them up inline via DELETE /api/customers/{id} (which cascades readings/invoices/payments).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 16 added POST /api/readings/reset?scope=month|all (server.py L452-483). It only mutates db.readings. TestResetReadings (11 tests) covers auth, invalid-scope 400, default scope, month-window correctness (current vs previous month), dashboard total_monthly_kwh reduction, scope='all' empties collection, and cross-collection non-interference. Full suite: 105 tests, ~25s, all green. NOTE: TestResetReadings runs LAST in file order, and its scope='all' tests WILL wipe every reading created by earlier customers — but since prior test classes cascade-delete their own customers (and thus readings) as they go, this is safe. If a future test class is inserted AFTER TestResetReadings that depends on readings being present, move it before, or add setup that reseeds readings.",
+  "rca_of_issue": "Not applicable — new-feature verification. Endpoint behaves exactly per review spec."
+}

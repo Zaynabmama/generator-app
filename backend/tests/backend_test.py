@@ -2014,3 +2014,210 @@ class TestDeleteInvoice:
             assert r2.status_code == 200 and r2.json()["is_suspended"] is False
         finally:
             api_client.delete(f"{API}/customers/{cust_id}")
+
+
+
+# ==================== Iteration 16: POST /api/readings/reset ====================
+
+class TestResetReadings:
+    """Iteration 16: POST /api/readings/reset with scope=month|all.
+    - scope='month' (default): delete readings whose reading_date is in the current
+      UTC calendar month; older readings preserved.
+    - scope='all': delete every reading.
+    - scope=<anything else>: 400 with detail 'نطاق غير صالح ...'
+    - Endpoint is protected by JWT.
+    """
+
+    def _make_customer(self, api_client, gen_id):
+        payload = {
+            "name": f"TEST_RESET_{uuid.uuid4().hex[:6]}",
+            "phone": "07711111111",
+            "address": "TEST",
+            "area": "المسعودية",
+            "meter_number": f"TEST-{uuid.uuid4().hex[:6]}",
+            "generator_id": gen_id,
+            "previous_balance": 0.0,
+        }
+        r = api_client.post(f"{API}/customers", json=payload)
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    def _add_reading(self, api_client, cust_id, prev, curr, when: datetime):
+        r = api_client.post(f"{API}/readings", json={
+            "customer_id": cust_id,
+            "previous_reading": prev,
+            "current_reading": curr,
+            "reading_date": when.isoformat(),
+        })
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    # 1) Auth: 401 without token
+    def test_reset_requires_jwt(self):
+        r = requests.post(f"{API}/readings/reset?scope=month")
+        assert r.status_code == 401, r.text
+
+    def test_reset_401_with_invalid_token(self):
+        r = requests.post(f"{API}/readings/reset?scope=all",
+                          headers={"Authorization": "Bearer not.a.jwt"})
+        assert r.status_code == 401, r.text
+
+    # 2) Invalid scope -> 400 + Arabic message
+    def test_reset_invalid_scope_returns_400(self, api_client):
+        r = api_client.post(f"{API}/readings/reset?scope=invalid")
+        assert r.status_code == 400, r.text
+        detail = r.json().get("detail", "")
+        assert "نطاق غير صالح" in detail, f"Missing Arabic detail: {detail}"
+
+    def test_reset_empty_scope_returns_400(self, api_client):
+        # empty string is neither 'month' nor 'all'
+        r = api_client.post(f"{API}/readings/reset?scope=")
+        assert r.status_code == 400, r.text
+
+    # 3) Default scope is 'month'
+    def test_reset_default_scope_is_month(self, api_client, mongo_db):
+        gens = api_client.get(f"{API}/generators").json()
+        cust_id = self._make_customer(api_client, gens[0]["id"])
+        try:
+            now = datetime.utcnow()
+            self._add_reading(api_client, cust_id, 0, 50, now)
+            r = api_client.post(f"{API}/readings/reset")  # no scope
+            assert r.status_code == 200, r.text
+            body = r.json()
+            assert body.get("scope") == "month"
+            assert isinstance(body.get("deleted_count"), int)
+            assert "message" in body
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    # 4) scope=month deletes only current-month readings; older preserved
+    def test_reset_month_deletes_only_current_month(self, api_client, mongo_db):
+        gens = api_client.get(f"{API}/generators").json()
+        cust_id = self._make_customer(api_client, gens[0]["id"])
+        try:
+            now = datetime.utcnow()
+            # current month reading
+            cur = self._add_reading(api_client, cust_id, 0, 100, now)
+            # previous month reading (safe day=15 to avoid month-length issues)
+            if now.month == 1:
+                prev_dt = datetime(now.year - 1, 12, 15)
+            else:
+                prev_dt = datetime(now.year, now.month - 1, 15)
+            old = self._add_reading(api_client, cust_id, 100, 250, prev_dt)
+
+            r = api_client.post(f"{API}/readings/reset?scope=month")
+            assert r.status_code == 200, r.text
+            body = r.json()
+            assert body["scope"] == "month"
+            assert body["deleted_count"] >= 1
+
+            # Current-month reading gone; previous-month reading preserved
+            remaining_ids = [rd["id"] for rd in
+                             api_client.get(f"{API}/readings?customer_id={cust_id}").json()]
+            assert cur["id"] not in remaining_ids, "current-month reading not deleted"
+            assert old["id"] in remaining_ids, "previous-month reading was wrongly deleted"
+
+            # Dashboard total_monthly_kwh should be 0 for this customer's slice
+            stats = api_client.get(f"{API}/stats/dashboard").json()
+            assert stats.get("total_monthly_kwh", 0) >= 0  # non-negative
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    # 5) After scope=month reset, dashboard monthly kwh does not include deleted
+    def test_reset_month_reduces_dashboard_monthly_kwh(self, api_client):
+        gens = api_client.get(f"{API}/generators").json()
+        cust_id = self._make_customer(api_client, gens[0]["id"])
+        try:
+            now = datetime.utcnow()
+            self._add_reading(api_client, cust_id, 0, 777, now)  # +777 kwh this month
+            before = api_client.get(f"{API}/stats/dashboard").json()["total_monthly_kwh"]
+            assert before >= 777
+
+            r = api_client.post(f"{API}/readings/reset?scope=month")
+            assert r.status_code == 200
+            after = api_client.get(f"{API}/stats/dashboard").json()["total_monthly_kwh"]
+            assert after == 0, f"Expected 0 after month reset, got {after}"
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    # 6) scope=all deletes every reading
+    def test_reset_all_deletes_everything(self, api_client, mongo_db):
+        gens = api_client.get(f"{API}/generators").json()
+        cust_id = self._make_customer(api_client, gens[0]["id"])
+        try:
+            now = datetime.utcnow()
+            self._add_reading(api_client, cust_id, 0, 50, now)
+            if now.month == 1:
+                prev_dt = datetime(now.year - 1, 12, 10)
+            else:
+                prev_dt = datetime(now.year, now.month - 1, 10)
+            self._add_reading(api_client, cust_id, 50, 200, prev_dt)
+
+            r = api_client.post(f"{API}/readings/reset?scope=all")
+            assert r.status_code == 200, r.text
+            body = r.json()
+            assert body["scope"] == "all"
+            assert body["deleted_count"] >= 2
+            assert "message" in body
+
+            # GET /api/readings returns []
+            assert api_client.get(f"{API}/readings").json() == []
+            # Mongo readings collection is empty
+            assert mongo_db.readings.count_documents({}) == 0
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    # 7) scope=month doesn't touch other collections (regression)
+    def test_reset_month_does_not_touch_customers_or_invoices(self, api_client):
+        gens = api_client.get(f"{API}/generators").json()
+        cust_id = self._make_customer(api_client, gens[0]["id"])
+        try:
+            # Create a reading + invoice
+            now = datetime.utcnow()
+            rd = self._add_reading(api_client, cust_id, 0, 100, now)
+            inv = api_client.post(f"{API}/invoices", json={
+                "customer_id": cust_id,
+                "reading_id": rd["id"],
+                "month": now.strftime("%Y-%m"),
+                "consumption_charge": 85.0,
+                "monthly_fee": 5.0,
+                "total_amount": 90.0,
+                "previous_balance": 0.0,
+                "amount_paid": 0.0,
+            }).json()
+
+            r = api_client.post(f"{API}/readings/reset?scope=month")
+            assert r.status_code == 200
+
+            # Customer + invoice untouched
+            assert api_client.get(f"{API}/customers/{cust_id}").status_code == 200
+            assert api_client.get(f"{API}/invoices/{inv['id']}").status_code == 200
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    # 8) Regression: after 'all' reset, we can still create new readings
+    def test_readings_still_writable_after_all_reset(self, api_client):
+        gens = api_client.get(f"{API}/generators").json()
+        cust_id = self._make_customer(api_client, gens[0]["id"])
+        try:
+            api_client.post(f"{API}/readings/reset?scope=all")
+            r = api_client.post(f"{API}/readings", json={
+                "customer_id": cust_id,
+                "previous_reading": 0.0,
+                "current_reading": 42.0,
+                "reading_date": datetime.utcnow().isoformat(),
+            })
+            assert r.status_code == 200, r.text
+            assert r.json()["consumption"] == 42.0
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    # 9) Regression: dashboard endpoint still returns expected shape after resets
+    def test_dashboard_shape_intact_after_reset(self, api_client):
+        api_client.post(f"{API}/readings/reset?scope=all")
+        stats = api_client.get(f"{API}/stats/dashboard").json()
+        for k in ("total_customers", "total_generators", "unpaid_invoices",
+                  "total_debt", "month_revenue", "total_monthly_kwh",
+                  "monthly_total_expenses", "monthly_net_profit"):
+            assert k in stats, f"missing key {k}"
+        assert stats["total_monthly_kwh"] == 0
