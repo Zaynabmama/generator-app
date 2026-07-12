@@ -94,6 +94,11 @@ export default function CustomersScreen() {
   };
 
   const renderCustomer = ({ item }: any) => (
+    <TouchableOpacity
+      onPress={() => router.push(`/customers/${item.id}`)}
+      activeOpacity={0.8}
+      testID={`customer-card-${item.id}`}
+    >
     <Card style={[styles.card, item.is_suspended && styles.suspendedCard]}>
       <Card.Content>
         <View style={styles.cardHeader}>
@@ -129,8 +134,9 @@ export default function CustomersScreen() {
                 setMenuVisible(null);
                 router.push(`/customers/${item.id}`);
               }}
-              title="عرض"
-              leadingIcon="eye"
+              title="تعديل"
+              leadingIcon="pencil"
+              testID={`edit-${item.id}`}
             />
             <Menu.Item
               onPress={() => handleSuspend(item.id)}
@@ -180,6 +186,7 @@ export default function CustomersScreen() {
         )}
       </Card.Content>
     </Card>
+    </TouchableOpacity>
   );
 
   return (

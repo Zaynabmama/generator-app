@@ -2221,3 +2221,252 @@ class TestResetReadings:
                   "monthly_total_expenses", "monthly_net_profit"):
             assert k in stats, f"missing key {k}"
         assert stats["total_monthly_kwh"] == 0
+
+
+
+# ==================== Iteration 17: PUT /api/customers/{id} edit verification ====================
+
+class TestCustomerEditPUT:
+    """Iteration 17: New frontend edit-customer screen consumes existing
+    PUT /api/customers/{customer_id} (server.py L300-314). We verify:
+      - Auth: 401 without JWT
+      - 404 for well-formed but missing ObjectId
+      - 400 for malformed ObjectId
+      - Individual field updates (meter_number, phone, area, generator_id,
+        address, name, previous_balance, notes) persist and are readable
+      - updated_at is refreshed
+      - No unexpected fields (amperage) leak
+    """
+
+    def _gen_ids(self, api_client):
+        gens = api_client.get(f"{API}/generators").json()
+        return [g["id"] for g in gens]
+
+    def _make_customer(self, api_client, gen_id, **overrides):
+        payload = {
+            "name": f"TEST_EDIT_{uuid.uuid4().hex[:6]}",
+            "phone": "07700000100",
+            "address": "TEST addr",
+            "area": "المسعودية",
+            "meter_number": f"TEST-{uuid.uuid4().hex[:6]}",
+            "generator_id": gen_id,
+            "previous_balance": 0.0,
+            "notes": "initial",
+        }
+        payload.update(overrides)
+        r = api_client.post(f"{API}/customers", json=payload)
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def _put(self, api_client, cust_id, base, **overrides):
+        payload = {
+            "name": base["name"],
+            "phone": base["phone"],
+            "address": base["address"],
+            "area": base["area"],
+            "meter_number": base["meter_number"],
+            "generator_id": base["generator_id"],
+            "previous_balance": base.get("previous_balance", 0.0),
+            "notes": base.get("notes"),
+        }
+        payload.update(overrides)
+        return api_client.put(f"{API}/customers/{cust_id}", json=payload)
+
+    # ---------- Auth ----------
+    def test_put_requires_jwt(self):
+        fake = "507f1f77bcf86cd799439011"
+        r = requests.put(f"{API}/customers/{fake}", json={
+            "name": "x", "phone": "x", "address": "x",
+            "area": "المسعودية", "meter_number": "x",
+            "generator_id": "x", "previous_balance": 0.0,
+        })
+        assert r.status_code == 401, r.text
+
+    # ---------- 404 / 400 ----------
+    def test_put_nonexistent_customer_returns_404(self, api_client):
+        gens = self._gen_ids(api_client)
+        r = api_client.put(f"{API}/customers/507f1f77bcf86cd799439011", json={
+            "name": "TEST_NF", "phone": "07700000000", "address": "x",
+            "area": "المسعودية", "meter_number": "TEST-NF",
+            "generator_id": gens[0], "previous_balance": 0.0,
+        })
+        assert r.status_code == 404, r.text
+        assert "المشترك غير موجود" in r.text
+
+    def test_put_invalid_id_returns_400(self, api_client):
+        gens = self._gen_ids(api_client)
+        r = api_client.put(f"{API}/customers/not-an-objectid", json={
+            "name": "x", "phone": "x", "address": "x",
+            "area": "المسعودية", "meter_number": "x",
+            "generator_id": gens[0], "previous_balance": 0.0,
+        })
+        assert r.status_code == 400, r.text
+        assert "معرّف غير صالح" in r.text
+
+    # ---------- Individual field updates + GET verification ----------
+    def test_update_meter_number_persists(self, api_client):
+        gens = self._gen_ids(api_client)
+        base = self._make_customer(api_client, gens[0])
+        cid = base["id"]
+        try:
+            new_meter = f"NEW-METER-{uuid.uuid4().hex[:6]}"
+            r = self._put(api_client, cid, base, meter_number=new_meter)
+            assert r.status_code == 200, r.text
+            assert r.json()["meter_number"] == new_meter
+            got = api_client.get(f"{API}/customers/{cid}").json()
+            assert got["meter_number"] == new_meter
+            # unchanged fields preserved
+            assert got["name"] == base["name"]
+            assert got["area"] == base["area"]
+        finally:
+            api_client.delete(f"{API}/customers/{cid}")
+
+    def test_update_phone_persists(self, api_client):
+        gens = self._gen_ids(api_client)
+        base = self._make_customer(api_client, gens[0])
+        cid = base["id"]
+        try:
+            new_phone = "07799887766"
+            r = self._put(api_client, cid, base, phone=new_phone)
+            assert r.status_code == 200, r.text
+            assert r.json()["phone"] == new_phone
+            assert api_client.get(f"{API}/customers/{cid}").json()["phone"] == new_phone
+        finally:
+            api_client.delete(f"{API}/customers/{cid}")
+
+    def test_update_area_persists(self, api_client):
+        gens = self._gen_ids(api_client)
+        base = self._make_customer(api_client, gens[0], area="المسعودية")
+        cid = base["id"]
+        try:
+            r = self._put(api_client, cid, base, area="الشرقي")
+            assert r.status_code == 200, r.text
+            assert r.json()["area"] == "الشرقي"
+            assert api_client.get(f"{API}/customers/{cid}").json()["area"] == "الشرقي"
+        finally:
+            api_client.delete(f"{API}/customers/{cid}")
+
+    def test_update_generator_id_persists_and_reflects(self, api_client):
+        gens = self._gen_ids(api_client)
+        assert len(gens) >= 2, "need at least 2 generators to test switching"
+        base = self._make_customer(api_client, gens[0])
+        cid = base["id"]
+        try:
+            r = self._put(api_client, cid, base, generator_id=gens[1])
+            assert r.status_code == 200, r.text
+            assert r.json()["generator_id"] == gens[1]
+            assert api_client.get(f"{API}/customers/{cid}").json()["generator_id"] == gens[1]
+        finally:
+            api_client.delete(f"{API}/customers/{cid}")
+
+    def test_update_address_and_name_and_notes(self, api_client):
+        gens = self._gen_ids(api_client)
+        base = self._make_customer(api_client, gens[0])
+        cid = base["id"]
+        try:
+            r = self._put(api_client, cid, base,
+                          name="TEST_EDIT_RENAMED",
+                          address="new address 42",
+                          notes="edited by test")
+            assert r.status_code == 200, r.text
+            got = api_client.get(f"{API}/customers/{cid}").json()
+            assert got["name"] == "TEST_EDIT_RENAMED"
+            assert got["address"] == "new address 42"
+            assert got["notes"] == "edited by test"
+        finally:
+            api_client.delete(f"{API}/customers/{cid}")
+
+    def test_update_previous_balance(self, api_client):
+        gens = self._gen_ids(api_client)
+        base = self._make_customer(api_client, gens[0], previous_balance=0.0)
+        cid = base["id"]
+        try:
+            r = self._put(api_client, cid, base, previous_balance=123.45)
+            assert r.status_code == 200, r.text
+            assert r.json()["previous_balance"] == 123.45
+            assert api_client.get(f"{API}/customers/{cid}").json()["previous_balance"] == 123.45
+        finally:
+            api_client.delete(f"{API}/customers/{cid}")
+
+    def test_update_all_fields_together(self, api_client):
+        gens = self._gen_ids(api_client)
+        assert len(gens) >= 2
+        base = self._make_customer(api_client, gens[0])
+        cid = base["id"]
+        try:
+            new_meter = f"ALL-{uuid.uuid4().hex[:6]}"
+            r = self._put(
+                api_client, cid, base,
+                name="TEST_ALL_UPDATED",
+                phone="07711223344",
+                address="new full address",
+                area="الغربي",
+                meter_number=new_meter,
+                generator_id=gens[1],
+                previous_balance=10.5,
+                notes="all-in-one edit",
+            )
+            assert r.status_code == 200, r.text
+            got = api_client.get(f"{API}/customers/{cid}").json()
+            assert got["name"] == "TEST_ALL_UPDATED"
+            assert got["phone"] == "07711223344"
+            assert got["address"] == "new full address"
+            assert got["area"] == "الغربي"
+            assert got["meter_number"] == new_meter
+            assert got["generator_id"] == gens[1]
+            assert got["previous_balance"] == 10.5
+            assert got["notes"] == "all-in-one edit"
+            # amperage must never leak
+            assert "amperage" not in got
+        finally:
+            api_client.delete(f"{API}/customers/{cid}")
+
+    def test_updated_at_is_refreshed_by_put(self, api_client):
+        import time as _time
+        gens = self._gen_ids(api_client)
+        base = self._make_customer(api_client, gens[0])
+        cid = base["id"]
+        try:
+            before = api_client.get(f"{API}/customers/{cid}").json().get("updated_at")
+            _time.sleep(1.1)
+            r = self._put(api_client, cid, base, notes="touch updated_at")
+            assert r.status_code == 200, r.text
+            after = api_client.get(f"{API}/customers/{cid}").json().get("updated_at")
+            assert after and after != before, (
+                f"updated_at not refreshed: before={before} after={after}"
+            )
+        finally:
+            api_client.delete(f"{API}/customers/{cid}")
+
+    def test_put_does_not_affect_related_invoices_or_readings(self, api_client):
+        """Editing customer info must not touch existing invoices/readings."""
+        gens = self._gen_ids(api_client)
+        base = self._make_customer(api_client, gens[0])
+        cid = base["id"]
+        try:
+            # add reading + invoice
+            rd = api_client.post(f"{API}/readings", json={
+                "customer_id": cid, "previous_reading": 0.0,
+                "current_reading": 100.0,
+                "reading_date": datetime.utcnow().isoformat(),
+            }).json()
+            inv = api_client.post(f"{API}/invoices", json={
+                "customer_id": cid, "reading_id": rd["id"],
+                "month": datetime.utcnow().strftime("%Y-%m"),
+                "consumption_charge": 85.0, "monthly_fee": 5.0,
+                "total_amount": 90.0, "previous_balance": 0.0,
+                "amount_paid": 0.0,
+            }).json()
+
+            r = self._put(api_client, cid, base,
+                          meter_number=f"CHG-{uuid.uuid4().hex[:6]}",
+                          phone="07799887766")
+            assert r.status_code == 200
+
+            # invoice & reading intact
+            got_inv = api_client.get(f"{API}/invoices/{inv['id']}").json()
+            assert got_inv["total_amount"] == 90.0
+            got_rd = api_client.get(f"{API}/readings/{rd['id']}").json()
+            assert got_rd["consumption"] == 100.0
+        finally:
+            api_client.delete(f"{API}/customers/{cid}")

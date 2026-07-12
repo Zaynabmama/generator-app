@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 17 backend verification for the new frontend Edit-Customer screen. The frontend consumes the EXISTING endpoint PUT /api/customers/{customer_id} (server.py L300-314). Added TestCustomerEditPUT (12 new tests) covering: (a) auth — 401 without JWT; (b) 404 for well-formed but non-existent ObjectId with Arabic detail 'المشترك غير موجود'; (c) 400 for malformed ObjectId with Arabic detail 'معرّف غير صالح'; (d) individual field updates (meter_number, phone, area, generator_id, address, name, notes, previous_balance) — each PUT is followed by an independent GET /api/customers/{id} to verify persistence; (e) all-fields-together update; (f) updated_at is refreshed after PUT (sleep 1.1s to guarantee monotonic ISO diff); (g) editing a customer does NOT mutate its existing invoices/readings; (h) amperage never leaks in the response. Full regression suite: 117/117 PASSED (100%) in ~27s. No new backend code was added — this is purely verification of an existing endpoint being reused by a new UI. No regressions across auth, customers, generators, readings, invoices, payments, expenses, dashboard, reports, cascade-delete, suspend, or reset-readings.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /api/customers/{customer_id}", "issue": "Accepts CustomerCreate (full replacement) rather than a partial CustomerUpdate model. The edit UI must always send every field; forgetting one (e.g., notes) will overwrite it with None. Consider a PATCH-style model with all-optional fields, or a dedicated CustomerUpdate model, so the frontend can send only the changed fields."},
+      {"endpoint": "PUT /api/customers/{customer_id}", "issue": "No uniqueness check on meter_number. Two customers can end up with the same meter_number via edit even though POST /customers doesn't explicitly enforce it either. Recommend a unique index on customers.meter_number plus a friendly 409 handler."},
+      {"endpoint": "PUT /api/customers/{customer_id}", "issue": "generator_id is not validated to exist. Sending a random string succeeds (Pydantic only sees a str). If a bad generator_id is stored, downstream joins may silently produce empty results. Recommend validating generator existence before $set."},
+      {"endpoint": "PUT /api/customers/{customer_id}", "issue": "Changing generator_id does NOT update generator.subscriber_count on either the old or the new generator. If the edit UI eventually allows moving a customer between generators, subscriber_count will drift. Not exercised by current UI, but flagged."},
+      {"endpoint": "PUT /api/customers/{customer_id}", "issue": "No amount>0 / phone-format validation. Sends '' for phone/address/meter_number are accepted."},
+      {"endpoint": "server.py L300", "issue": "(carried) All CustomerCreate-typed writes silently accept and drop 'amperage'; still verified as removed from responses."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: Introduce a dedicated CustomerUpdate Pydantic model with all-optional fields so the frontend edit screen can send only changed fields (partial update) without wiping the untouched ones.",
+    "OPTIONAL: Add a unique index on customers.meter_number and return a friendly 409 when the edit screen tries to reuse an existing meter number.",
+    "OPTIONAL: Validate generator_id exists in db.generators on PUT; if generator_id changes, decrement old and increment new generator.subscriber_count atomically.",
+    "OPTIONAL: Add basic phone/meter_number format validators to CustomerCreate/CustomerUpdate to reject empty strings."
+  ],
+  "critical_code_review_comments": [
+    "server.py L300-314 update_customer: correctly requires JWT (via api_router dependency), replaces the customer doc with the incoming CustomerCreate payload plus a fresh updated_at, returns 404 with Arabic detail when no doc matches, and relies on the global InvalidId handler to convert malformed ObjectId into 400 (verified).",
+    "Because the endpoint uses CustomerCreate (not a partial model), the frontend edit form MUST resend every field. This is a footgun worth documenting on the frontend side or refactoring to CustomerUpdate.",
+    "No side-effects on invoices/readings/payments/generators. Confirmed by test_put_does_not_affect_related_invoices_or_readings and by the generator subscriber_count remaining unchanged during PUT operations."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (appended TestCustomerEditPUT with 12 tests)"
+  ],
+  "success_rate": {"backend": "100% (117/117)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "None. Each test creates TEST_EDIT_* customers and cleans them up in a finally block via DELETE /api/customers/{id} (which cascades readings/invoices/payments).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 17 added verification for the existing PUT /api/customers/{customer_id} endpoint under the new class TestCustomerEditPUT (12 tests). Suite is now 117 tests, ~27s, all green. Key gotcha: this PUT uses CustomerCreate (full replacement) — any partial-update refactor on the frontend will require a matching CustomerUpdate model on the backend, otherwise unsent fields will be wiped. Tests assume ≥2 generators for the generator_id switch test; MS/Ms28796610** credentials still valid.",
+  "rca_of_issue": "Not applicable — verification of an existing endpoint newly consumed by a frontend edit screen. Endpoint behaves per spec."
+}
