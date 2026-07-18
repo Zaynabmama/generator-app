@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -16,49 +16,29 @@ import {
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { customersAPI, generatorsAPI } from '@/src/services/api';
-import { Picker } from '@react-native-picker/picker';
+import { customersAPI } from '@/src/services/api';
 
 export default function AddCustomerScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [generators, setGenerators] = useState<any[]>([]);
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
     address: '',
     area: 'المسعودية',
     meter_number: '',
-    generator_id: '',
     previous_balance: '0',
     notes: '',
   });
 
   const areas = ['المسعودية', 'الشرقي', 'الحيصة', 'الغربي'];
 
-  useEffect(() => {
-    fetchGenerators();
-  }, []);
-
-  const fetchGenerators = async () => {
-    try {
-      const response = await generatorsAPI.getAll();
-      setGenerators(response.data);
-      if (response.data.length > 0) {
-        setFormData((prev) => ({ ...prev, generator_id: response.data[0].id }));
-      }
-    } catch (error) {
-      console.error('Error fetching generators:', error);
-    }
-  };
-
   const handleSubmit = async () => {
     if (
       !formData.name ||
       !formData.phone ||
       !formData.address ||
-      !formData.meter_number ||
-      !formData.generator_id
+      !formData.meter_number
     ) {
       Alert.alert('خطأ', 'الرجاء إدخال جميع الحقول المطلوبة');
       return;
@@ -68,6 +48,7 @@ export default function AddCustomerScreen() {
     try {
       const data = {
         ...formData,
+        generator_id: '',
         previous_balance: parseFloat(formData.previous_balance),
       };
 
@@ -159,30 +140,6 @@ export default function AddCustomerScreen() {
                 mode="outlined"
                 style={styles.input}
               />
-
-              {generators.length > 0 && (
-                <View style={styles.pickerContainer}>
-                  <Text style={styles.label}>المولد التابع له *</Text>
-                  <View style={styles.pickerWrapper}>
-                    <Picker
-                      selectedValue={formData.generator_id}
-                      onValueChange={(value) =>
-                        setFormData({ ...formData, generator_id: value })
-                      }
-                      style={styles.picker}
-                      dropdownIconColor="#fff"
-                    >
-                      {generators.map((gen) => (
-                        <Picker.Item
-                          key={gen.id}
-                          label={gen.name}
-                          value={gen.id}
-                        />
-                      ))}
-                    </Picker>
-                  </View>
-                </View>
-              )}
 
               <TextInput
                 label="الرصيد السابق ($)"

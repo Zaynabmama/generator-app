@@ -126,7 +126,7 @@ class CustomerCreate(BaseModel):
     address: str
     area: str  # المسعودية، الشرقي، الحيصة، الغربي
     meter_number: str  # رقم العداد
-    generator_id: str  # المولد التابع له
+    generator_id: Optional[str] = ""  # المولد (اختياري - المشتركين ياخدو من الكل)
     previous_balance: float = 0.0  # الرصيد السابق
     notes: str = ""
 
@@ -137,10 +137,10 @@ class Customer(BaseModel):
     address: str
     area: str
     meter_number: str
-    generator_id: str
+    generator_id: Optional[str] = ""
     previous_balance: float = 0.0
-    current_balance: float = 0.0  # الرصيد الحالي
-    is_suspended: bool = False  # معلق (موقّف العداد)
+    current_balance: float = 0.0
+    is_suspended: bool = False
     suspended_at: Optional[datetime] = None
     notes: str = ""
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -255,17 +255,23 @@ async def get_me(current: dict = Depends(get_current_admin)):
 async def create_customer(customer: CustomerCreate):
     customer_dict = customer.dict()
     customer_dict['current_balance'] = customer.previous_balance
+    customer_dict['is_suspended'] = False
+    customer_dict['suspended_at'] = None
     customer_dict['created_at'] = datetime.utcnow()
     customer_dict['updated_at'] = datetime.utcnow()
     
     result = await db.customers.insert_one(customer_dict)
     customer_dict['id'] = str(result.inserted_id)
     
-    # Update generator subscriber count
-    await db.generators.update_one(
-        {"_id": ObjectId(customer.generator_id)},
-        {"$inc": {"subscriber_count": 1}}
-    )
+    # Update generator subscriber count only if a generator is assigned
+    if customer.generator_id:
+        try:
+            await db.generators.update_one(
+                {"_id": ObjectId(customer.generator_id)},
+                {"$inc": {"subscriber_count": 1}}
+            )
+        except Exception:
+            pass  # Ignore if invalid generator id
     
     return Customer(**customer_dict)
 
@@ -343,13 +349,18 @@ async def delete_customer(customer_id: str):
     if not customer:
         raise HTTPException(status_code=404, detail="المشترك غير موجود")
     
-    # Update generator subscriber count
-    await db.generators.update_one(
-        {"_id": ObjectId(customer['generator_id'])},
-        {"$inc": {"subscriber_count": -1}}
-    )
+    # Update generator subscriber count only if generator_id is set and valid
+    gen_id = customer.get('generator_id')
+    if gen_id:
+        try:
+            await db.generators.update_one(
+                {"_id": ObjectId(gen_id)},
+                {"$inc": {"subscriber_count": -1}}
+            )
+        except Exception:
+            pass
     
-    # Cascade delete: remove all invoices, readings, and payments for this customer
+    # Cascade delete
     await db.invoices.delete_many({"customer_id": customer_id})
     await db.readings.delete_many({"customer_id": customer_id})
     await db.payments.delete_many({"customer_id": customer_id})
