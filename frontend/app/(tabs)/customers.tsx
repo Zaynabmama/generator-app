@@ -1,10 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Alert,
 } from 'react-native';
 import {
   Card,
@@ -19,9 +18,10 @@ import {
   Dialog,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { customersAPI, generatorsAPI } from '@/src/services/api';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { showAlert } from '@/src/utils/alert';
 
 export default function CustomersScreen() {
   const router = useRouter();
@@ -51,7 +51,7 @@ export default function CustomersScreen() {
       setGenerators(generatorsRes.data);
     } catch (error) {
       console.error('Error fetching customers:', error);
-      Alert.alert('خطف', 'حدث خطأ أثناء تحميل البيانات');
+      showAlert('خطأ', 'حدث خطأ أثناء تحميل البيانات');
     } finally {
       setLoading(false);
     }
@@ -60,6 +60,12 @@ export default function CustomersScreen() {
   useEffect(() => {
     fetchData();
   }, [searchQuery, selectedArea]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchData();
+    }, [searchQuery, selectedArea])
+  );
 
   const getGeneratorName = (generatorId: string) => {
     const generator = generators.find((g) => g.id === generatorId);
@@ -77,7 +83,7 @@ export default function CustomersScreen() {
       const response = await customersAPI.suspend(id);
       await fetchData();
     } catch (error: any) {
-      Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ');
+      showAlert('خطأ', error.response?.data?.detail || 'حدث خطأ');
     }
   };
 
@@ -89,7 +95,7 @@ export default function CustomersScreen() {
       setCustomerToDelete(null);
       await fetchData();
     } catch (error: any) {
-      Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحذف');
+      showAlert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحذف');
     }
   };
 

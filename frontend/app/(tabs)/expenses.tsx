@@ -1,9 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   StyleSheet,
   FlatList,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -21,8 +20,10 @@ import {
   SegmentedButtons,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from 'expo-router';
 import { expensesAPI, dashboardAPI, readingsAPI } from '@/src/services/api';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { showAlert } from '@/src/utils/alert';
 
 export default function ExpensesScreen() {
   const [expenses, setExpenses] = useState<any[]>([]);
@@ -61,7 +62,7 @@ export default function ExpensesScreen() {
       setStats(statsRes.data);
     } catch (error) {
       console.error('Error:', error);
-      Alert.alert('خطأ', 'حدث خطأ أثناء تحميل البيانات');
+      showAlert('خطأ', 'حدث خطأ أثناء تحميل البيانات');
     } finally {
       setLoading(false);
     }
@@ -70,6 +71,12 @@ export default function ExpensesScreen() {
   useEffect(() => {
     fetchData();
   }, [selectedType]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchData();
+    }, [selectedType])
+  );
 
   const handleAdd = () => {
     setFormData({
@@ -83,12 +90,12 @@ export default function ExpensesScreen() {
 
   const handleSave = async () => {
     if (!formData.amount || parseFloat(formData.amount) <= 0) {
-      Alert.alert('خطأ', 'الرجاء إدخال مبلغ صحيح');
+      showAlert('خطأ', 'الرجاء إدخال مبلغ صحيح');
       return;
     }
 
     if (!formData.description) {
-      Alert.alert('خطأ', 'الرجاء إدخال وصف للمصروف');
+      showAlert('خطأ', 'الرجاء إدخال وصف للمصروف');
       return;
     }
 
@@ -104,7 +111,7 @@ export default function ExpensesScreen() {
       setDialogVisible(false);
       await fetchData();
     } catch (error: any) {
-      Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحفظ');
+      showAlert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحفظ');
     }
   };
 
@@ -121,7 +128,7 @@ export default function ExpensesScreen() {
       setExpenseToDelete(null);
       await fetchData();
     } catch (error: any) {
-      Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحذف');
+      showAlert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحذف');
     }
   };
 
@@ -135,9 +142,9 @@ export default function ExpensesScreen() {
       const response = await readingsAPI.reset(resetScope);
       setResetDialogVisible(false);
       await fetchData();
-      Alert.alert('نجاح', response.data.message);
+      showAlert('نجاح', response.data.message);
     } catch (error: any) {
-      Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء التصفير');
+      showAlert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء التصفير');
     }
   };
 

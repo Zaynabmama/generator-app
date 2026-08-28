@@ -1,9 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   StyleSheet,
   FlatList,
-  Alert,
 } from 'react-native';
 import {
   Card,
@@ -17,8 +16,10 @@ import {
   TextInput,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from 'expo-router';
 import { generatorsAPI } from '@/src/services/api';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { showAlert } from '@/src/utils/alert';
 
 export default function GeneratorsScreen() {
   const [generators, setGenerators] = useState<any[]>([]);
@@ -39,7 +40,7 @@ export default function GeneratorsScreen() {
       setGenerators(response.data);
     } catch (error) {
       console.error('Error fetching generators:', error);
-      Alert.alert('خطأ', 'حدث خطأ أثناء تحميل البيانات');
+      showAlert('خطأ', 'حدث خطأ أثناء تحميل البيانات');
     } finally {
       setLoading(false);
     }
@@ -48,6 +49,12 @@ export default function GeneratorsScreen() {
   useEffect(() => {
     fetchGenerators();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchGenerators();
+    }, [])
+  );
 
   const handleAdd = () => {
     setEditMode(false);
@@ -69,7 +76,7 @@ export default function GeneratorsScreen() {
 
   const handleSave = async () => {
     if (!formData.name || !formData.capacity) {
-      Alert.alert('خطأ', 'الرجاء إدخال جميع الحقول المطلوبة');
+      showAlert('خطأ', 'الرجاء إدخال جميع الحقول المطلوبة');
       return;
     }
 
@@ -82,21 +89,21 @@ export default function GeneratorsScreen() {
 
       if (editMode && selectedGenerator) {
         await generatorsAPI.update(selectedGenerator.id, data);
-        Alert.alert('نجاح', 'تم تحديث المولد بنجاح');
+        showAlert('نجاح', 'تم تحديث المولد بنجاح');
       } else {
         await generatorsAPI.create(data);
-        Alert.alert('نجاح', 'تم إضافة المولد بنجاح');
+        showAlert('نجاح', 'تم إضافة المولد بنجاح');
       }
 
       setDialogVisible(false);
       fetchGenerators();
     } catch (error: any) {
-      Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحفظ');
+      showAlert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحفظ');
     }
   };
 
   const handleDelete = async (id: string, name: string) => {
-    Alert.alert(
+    showAlert(
       'تأكيد الحذف',
       `هل أنت متأكد من حذف المولد "${name}"؟`,
       [
@@ -108,9 +115,9 @@ export default function GeneratorsScreen() {
             try {
               await generatorsAPI.delete(id);
               fetchGenerators();
-              Alert.alert('نجاح', 'تم حذف المولد بنجاح');
+              showAlert('نجاح', 'تم حذف المولد بنجاح');
             } catch (error: any) {
-              Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحذف');
+              showAlert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحذف');
             }
           },
         },

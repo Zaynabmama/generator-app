@@ -5,12 +5,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   Image,
-  Alert,
 } from 'react-native';
 import { TextInput, Button, Text, Card } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/src/store/authStore';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { showAlert } from '@/src/utils/alert';
 
 export default function LoginScreen() {
   const [username, setUsername] = useState('');
@@ -29,7 +29,7 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     if (!username || !password) {
-      Alert.alert('خطأ', 'الرجاء إدخال اسم المستخدم وكلمة المرور');
+      showAlert('خطأ', 'الرجاء إدخال اسم المستخدم وكلمة المرور');
       return;
     }
 
@@ -40,7 +40,7 @@ export default function LoginScreen() {
     if (success) {
       router.replace('/(tabs)/dashboard');
     } else {
-      Alert.alert('خطأ', 'اسم المستخدم أو كلمة المرور غير صحيحة');
+      showAlert('خطأ', 'اسم المستخدم أو كلمة المرور غير صحيحة');
     }
   };
 

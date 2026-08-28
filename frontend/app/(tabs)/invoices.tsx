@@ -1,9 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   StyleSheet,
   FlatList,
-  Alert,
   TouchableOpacity,
   ScrollView,
 } from 'react-native';
@@ -20,9 +19,10 @@ import {
   TextInput as PaperInput,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { invoicesAPI, customersAPI } from '@/src/services/api';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { showAlert } from '@/src/utils/alert';
 
 export default function InvoicesScreen() {
   const router = useRouter();
@@ -93,7 +93,7 @@ export default function InvoicesScreen() {
       setCustomers(customersRes.data);
     } catch (error) {
       console.error('Error fetching invoices:', error);
-      Alert.alert('خطأ', 'حدث خطأ أثناء تحميل البيانات');
+      showAlert('خطأ', 'حدث خطأ أثناء تحميل البيانات');
     } finally {
       setLoading(false);
     }
@@ -102,6 +102,12 @@ export default function InvoicesScreen() {
   useEffect(() => {
     fetchData();
   }, [searchQuery, selectedStatus, showOverdueOnly, showUnpaidAll]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchData();
+    }, [searchQuery, selectedStatus, showOverdueOnly, showUnpaidAll])
+  );
 
   const getCustomerName = (customerId: string) => {
     const customer = customers.find((c) => c.id === customerId);
@@ -142,7 +148,7 @@ export default function InvoicesScreen() {
 
   const submitPayment = async () => {
     if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
-      Alert.alert('خطأ', 'الرجاء إدخال مبلغ صحيح');
+      showAlert('خطأ', 'الرجاء إدخال مبلغ صحيح');
       return;
     }
 
@@ -153,11 +159,11 @@ export default function InvoicesScreen() {
         notes: '',
       });
 
-      Alert.alert('نجاح', 'تم تسجيل الدفعة بنجاح');
+      showAlert('نجاح', 'تم تسجيل الدفعة بنجاح');
       setPaymentDialogVisible(false);
       fetchData();
     } catch (error: any) {
-      Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحفظ');
+      showAlert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحفظ');
     }
   };
 
@@ -174,7 +180,7 @@ export default function InvoicesScreen() {
       setInvoiceToDelete(null);
       await fetchData();
     } catch (error: any) {
-      Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحذف');
+      showAlert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحذف');
     }
   };
 

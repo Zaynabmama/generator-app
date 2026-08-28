@@ -3,7 +3,6 @@ import {
   View,
   StyleSheet,
   ScrollView,
-  Alert,
   Linking,
   Platform,
 } from 'react-native';
@@ -23,6 +22,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { invoicesAPI, customersAPI, readingsAPI, generatorsAPI } from '@/src/services/api';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { showAlert } from '@/src/utils/alert';
 
 export default function InvoiceDetailScreen() {
   const params = useLocalSearchParams<{ id: string; autoWhatsApp?: string }>();
@@ -81,7 +81,7 @@ export default function InvoiceDetailScreen() {
       }
     } catch (error) {
       console.error('Error:', error);
-      Alert.alert('خطأ', 'حدث خطأ أثناء تحميل الفاتورة');
+      showAlert('خطأ', 'حدث خطأ أثناء تحميل الفاتورة');
     } finally {
       setLoading(false);
     }
@@ -341,7 +341,7 @@ export default function InvoiceDetailScreen() {
       return uri;
     } catch (error) {
       console.error('PDF error:', error);
-      Alert.alert('خطأ', 'حدث خطأ أثناء إنشاء PDF: ' + String(error));
+      showAlert('خطأ', 'حدث خطأ أثناء إنشاء PDF: ' + String(error));
       return null;
     } finally {
       setSending(false);
@@ -365,7 +365,7 @@ export default function InvoiceDetailScreen() {
       }
     } catch (error) {
       console.error('Print error:', error);
-      Alert.alert('خطأ', 'حدث خطأ أثناء الطباعة: ' + String(error));
+      showAlert('خطأ', 'حدث خطأ أثناء الطباعة: ' + String(error));
     } finally {
       setSending(false);
     }
@@ -401,11 +401,11 @@ export default function InvoiceDetailScreen() {
           UTI: 'com.adobe.pdf',
         });
       } else {
-        Alert.alert('تنبيه', 'المشاركة غير متاحة على هذا الجهاز');
+        showAlert('تنبيه', 'المشاركة غير متاحة على هذا الجهاز');
       }
     } catch (error) {
       console.error('Share error:', error);
-      Alert.alert('خطأ', 'حدث خطأ أثناء المشاركة: ' + String(error));
+      showAlert('خطأ', 'حدث خطأ أثناء المشاركة: ' + String(error));
     } finally {
       setSending(false);
     }
@@ -418,7 +418,7 @@ export default function InvoiceDetailScreen() {
 
   const submitPayment = async () => {
     if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
-      Alert.alert('خطأ', 'الرجاء إدخال مبلغ صحيح');
+      showAlert('خطأ', 'الرجاء إدخال مبلغ صحيح');
       return;
     }
 
@@ -430,12 +430,12 @@ export default function InvoiceDetailScreen() {
         notes: '',
       });
 
-      Alert.alert('نجاح', 'تم تسجيل الدفعة بنجاح');
+      showAlert('نجاح', 'تم تسجيل الدفعة بنجاح');
       setPaymentDialogVisible(false);
       setPaymentAmount('');
       await fetchData();
     } catch (error: any) {
-      Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء تسجيل الدفعة');
+      showAlert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء تسجيل الدفعة');
     } finally {
       setSending(false);
     }
@@ -448,7 +448,7 @@ export default function InvoiceDetailScreen() {
       setDeleteDialogVisible(false);
       router.back();
     } catch (error: any) {
-      Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحذف');
+      showAlert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحذف');
     } finally {
       setSending(false);
     }
@@ -531,7 +531,7 @@ ${BUSINESS_INFO.phones}
       }
     } catch (error) {
       console.error('WhatsApp error:', error);
-      Alert.alert('خطأ', 'حدث خطأ أثناء إرسال WhatsApp');
+      showAlert('خطأ', 'حدث خطأ أثناء إرسال WhatsApp');
     } finally {
       setSending(false);
     }

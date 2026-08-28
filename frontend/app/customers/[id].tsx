@@ -5,7 +5,6 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  Alert,
 } from 'react-native';
 import {
   Text,
@@ -20,6 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { customersAPI, generatorsAPI } from '@/src/services/api';
 import { Picker } from '@react-native-picker/picker';
+import { showAlert } from '@/src/utils/alert';
 
 export default function EditCustomerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -65,7 +65,7 @@ export default function EditCustomerScreen() {
         notes: c.notes || '',
       });
     } catch (error) {
-      Alert.alert('خطأ', 'حدث خطأ أثناء تحميل بيانات المشترك');
+      showAlert('خطأ', 'حدث خطأ أثناء تحميل بيانات المشترك');
       router.back();
     } finally {
       setLoading(false);
@@ -80,7 +80,7 @@ export default function EditCustomerScreen() {
       !formData.meter_number ||
       !formData.generator_id
     ) {
-      Alert.alert('خطأ', 'الرجاء إدخال جميع الحقول المطلوبة');
+      showAlert('خطأ', 'الرجاء إدخال جميع الحقول المطلوبة');
       return;
     }
 
@@ -92,10 +92,10 @@ export default function EditCustomerScreen() {
       };
 
       await customersAPI.update(id!, data);
-      Alert.alert('نجاح', 'تم تحديث بيانات المشترك بنجاح');
+      showAlert('نجاح', 'تم تحديث بيانات المشترك بنجاح');
       router.back();
     } catch (error: any) {
-      Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحفظ');
+      showAlert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحفظ');
     } finally {
       setSaving(false);
     }

@@ -5,7 +5,6 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  Alert,
 } from 'react-native';
 import {
   Text,
@@ -18,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { customersAPI, readingsAPI, invoicesAPI } from '@/src/services/api';
 import { Picker } from '@react-native-picker/picker';
+import { showAlert } from '@/src/utils/alert';
 
 export default function CreateInvoiceScreen() {
   const router = useRouter();
@@ -84,7 +84,7 @@ export default function CreateInvoiceScreen() {
     const consumption = currReading - prevReading;
 
     if (consumption < 0) {
-      Alert.alert('خطأ', 'القراءة الحالية يجب أن تكون أكبر من القراءة السابقة');
+      showAlert('خطأ', 'القراءة الحالية يجب أن تكون أكبر من القراءة السابقة');
       return;
     }
 
@@ -138,7 +138,7 @@ export default function CreateInvoiceScreen() {
       const invoiceId = invoiceResponse.data.id;
       router.replace(`/invoices/${invoiceId}?autoWhatsApp=1`);
     } catch (error: any) {
-      Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحفظ');
+      showAlert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحفظ');
     } finally {
       setLoading(false);
     }

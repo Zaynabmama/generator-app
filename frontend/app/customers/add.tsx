@@ -5,7 +5,6 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  Alert,
 } from 'react-native';
 import {
   Text,
@@ -17,6 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { customersAPI } from '@/src/services/api';
+import { showAlert } from '@/src/utils/alert';
 
 export default function AddCustomerScreen() {
   const router = useRouter();
@@ -40,7 +40,7 @@ export default function AddCustomerScreen() {
       !formData.address ||
       !formData.meter_number
     ) {
-      Alert.alert('خطأ', 'الرجاء إدخال جميع الحقول المطلوبة');
+      showAlert('خطأ', 'الرجاء إدخال جميع الحقول المطلوبة');
       return;
     }
 
@@ -53,10 +53,10 @@ export default function AddCustomerScreen() {
       };
 
       await customersAPI.create(data);
-      Alert.alert('نجاح', 'تم إضافة المشترك بنجاح');
+      showAlert('نجاح', 'تم إضافة المشترك بنجاح');
       router.back();
     } catch (error: any) {
-      Alert.alert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحفظ');
+      showAlert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحفظ');
     } finally {
       setLoading(false);
     }
