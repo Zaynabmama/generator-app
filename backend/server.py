@@ -128,6 +128,7 @@ class CustomerCreate(BaseModel):
     meter_number: str  # رقم العداد
     generator_id: Optional[str] = ""  # المولد (اختياري - المشتركين ياخدو من الكل)
     previous_balance: float = 0.0  # الرصيد السابق
+    kwh_rate: Optional[float] = None  # سعر مخصص لهذا المشترك (فارغ = يستخدم السعر العام)
     notes: str = ""
 
 class Customer(BaseModel):
@@ -142,6 +143,7 @@ class Customer(BaseModel):
     current_balance: float = 0.0
     is_suspended: bool = False
     suspended_at: Optional[datetime] = None
+    kwh_rate: Optional[float] = None
     notes: str = ""
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

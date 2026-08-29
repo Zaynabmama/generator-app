@@ -23,7 +23,6 @@ import * as Sharing from 'expo-sharing';
 import { invoicesAPI, customersAPI, readingsAPI, generatorsAPI } from '@/src/services/api';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { showAlert } from '@/src/utils/alert';
-import { usePricing } from '@/src/hooks/use-pricing';
 
 export default function InvoiceDetailScreen() {
   const params = useLocalSearchParams<{ id: string; autoWhatsApp?: string }>();
@@ -40,12 +39,9 @@ export default function InvoiceDetailScreen() {
   const [autoSendTriggered, setAutoSendTriggered] = useState(false);
   const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
 
-  const { kwhRate } = usePricing();
-
   const BUSINESS_INFO = {
     name: 'أبو عباس للإنارة',
     phones: '76/942194 - 70/572160',
-    kwh_price: kwhRate,
   };
 
   useEffect(() => {
@@ -302,10 +298,6 @@ export default function InvoiceDetailScreen() {
                 <div class="left-value">${consumption}</div>
               </div>
               <div class="left-row">
-                <div class="left-label">سعر ك.وات</div>
-                <div class="left-value">$${BUSINESS_INFO.kwh_price}</div>
-              </div>
-              <div class="left-row">
                 <div class="left-label">اشتراك شهري</div>
                 <div class="left-value">$${invoice.monthly_fee.toFixed(2)}</div>
               </div>
@@ -494,7 +486,6 @@ ${BUSINESS_INFO.phones}
 العداد السابق: ${reading.previous_reading}
 العداد الحالي: ${reading.current_reading}
 حجم المصروف: ${consumption} kWh
-سعر ك.وات: $${BUSINESS_INFO.kwh_price}
 اشتراك شهري: $${invoice.monthly_fee.toFixed(2)}
 ━━━━━━━━━━━━━━━
 
@@ -627,11 +618,6 @@ ${BUSINESS_INFO.phones}
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>شهر:</Text>
               <Text style={styles.detailValue}>{monthName}</Text>
-            </View>
-
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>سعر ك.وات:</Text>
-              <Text style={styles.detailValue}>${BUSINESS_INFO.kwh_price}</Text>
             </View>
 
             <View style={styles.detailRow}>

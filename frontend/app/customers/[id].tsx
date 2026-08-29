@@ -35,6 +35,7 @@ export default function EditCustomerScreen() {
     meter_number: '',
     generator_id: '',
     previous_balance: '0',
+    kwh_rate: '',
     notes: '',
   });
 
@@ -62,6 +63,7 @@ export default function EditCustomerScreen() {
         meter_number: c.meter_number || '',
         generator_id: c.generator_id || '',
         previous_balance: String(c.previous_balance || 0),
+        kwh_rate: c.kwh_rate != null ? String(c.kwh_rate) : '',
         notes: c.notes || '',
       });
     } catch (error) {
@@ -88,6 +90,7 @@ export default function EditCustomerScreen() {
       const data = {
         ...formData,
         previous_balance: parseFloat(formData.previous_balance),
+        kwh_rate: formData.kwh_rate ? parseFloat(formData.kwh_rate) : null,
       };
 
       await customersAPI.update(id!, data);
@@ -225,6 +228,18 @@ export default function EditCustomerScreen() {
                 }
                 mode="outlined"
                 keyboardType="numeric"
+                style={styles.input}
+              />
+
+              <TextInput
+                label="سعر الكيلوواط الخاص بهذا المشترك ($)"
+                value={formData.kwh_rate}
+                onChangeText={(text) =>
+                  setFormData({ ...formData, kwh_rate: text })
+                }
+                mode="outlined"
+                keyboardType="numeric"
+                placeholder="اتركه فارغاً لاستخدام السعر العام"
                 style={styles.input}
               />
 

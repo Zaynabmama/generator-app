@@ -88,7 +88,13 @@ export default function CreateInvoiceScreen() {
       return;
     }
 
-    const consumptionCharge = consumption * CONSUMPTION_RATE;
+    // A customer with their own kWh price (set on their profile) overrides the general rate
+    const rate =
+      selectedCustomer.kwh_rate && selectedCustomer.kwh_rate > 0
+        ? selectedCustomer.kwh_rate
+        : CONSUMPTION_RATE;
+
+    const consumptionCharge = consumption * rate;
     const totalAmount = consumptionCharge + MONTHLY_FEE;
 
     const now = new Date();
@@ -97,6 +103,7 @@ export default function CreateInvoiceScreen() {
     setInvoicePreview({
       customer: selectedCustomer,
       consumption,
+      kwhRate: rate,
       consumptionCharge,
       monthlyFee: MONTHLY_FEE,
       totalAmount,
@@ -188,6 +195,15 @@ export default function CreateInvoiceScreen() {
                 <Text style={styles.infoLabel}>الرصيد المتبقي:</Text>
                 <Text style={[styles.infoValue, { color: '#F44336' }]}>
                   ${selectedCustomer.current_balance.toFixed(2)}
+                </Text>
+              </>
+            )}
+
+            {selectedCustomer.kwh_rate > 0 && (
+              <>
+                <Text style={styles.infoLabel}>سعر الكيلوواط الخاص به:</Text>
+                <Text style={[styles.infoValue, { color: '#4CAF50' }]}>
+                  ${selectedCustomer.kwh_rate.toFixed(2)} (بدلاً من السعر العام)
                 </Text>
               </>
             )}
@@ -306,7 +322,7 @@ export default function CreateInvoiceScreen() {
 
           <Text style={styles.previewTitle}>رسم الاستهلاك:</Text>
           <Text style={styles.previewValue}>
-            {invoicePreview?.consumption.toLocaleString()} kWh × ${CONSUMPTION_RATE.toFixed(2)} ={' '}
+            {invoicePreview?.consumption.toLocaleString()} kWh × ${invoicePreview?.kwhRate.toFixed(2)} ={' '}
             ${invoicePreview?.consumptionCharge.toFixed(2)}
           </Text>
 
