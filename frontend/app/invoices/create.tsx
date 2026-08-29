@@ -12,9 +12,10 @@ import {
   Button,
   Card,
   SegmentedButtons,
+  ActivityIndicator,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { customersAPI, readingsAPI, invoicesAPI } from '@/src/services/api';
 import { Picker } from '@react-native-picker/picker';
 import { showAlert } from '@/src/utils/alert';
@@ -22,10 +23,15 @@ import { usePricing } from '@/src/hooks/use-pricing';
 
 export default function CreateInvoiceScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ readingId?: string }>();
   const [loading, setLoading] = useState(false);
+  const [initializing, setInitializing] = useState(!!params.readingId);
   const [customers, setCustomers] = useState<any[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [step, setStep] = useState(1); // 1: Select customer, 2: Enter reading, 3: Review
+  // Set when arriving from a previously-saved (not yet invoiced) reading —
+  // the reading already exists, so submit shouldn't create another one.
+  const [existingReadingId, setExistingReadingId] = useState<string | null>(null);
 
   const [readingData, setReadingData] = useState({
     previous_reading: '',
@@ -41,6 +47,56 @@ export default function CreateInvoiceScreen() {
   useEffect(() => {
     fetchCustomers();
   }, []);
+
+  useEffect(() => {
+    if (params.readingId) {
+      loadFromExistingReading(params.readingId);
+    }
+  }, [params.readingId]);
+
+  const loadFromExistingReading = async (readingId: string) => {
+    try {
+      const readingRes = await readingsAPI.getOne(readingId);
+      const reading = readingRes.data;
+      const customerRes = await customersAPI.getOne(reading.customer_id);
+      const customer = customerRes.data;
+
+      setExistingReadingId(readingId);
+      setSelectedCustomer(customer);
+      setReadingData({
+        previous_reading: String(reading.previous_reading),
+        current_reading: String(reading.current_reading),
+        notes: reading.notes || '',
+      });
+
+      const rate =
+        customer.kwh_rate && customer.kwh_rate > 0 ? customer.kwh_rate : CONSUMPTION_RATE;
+      const consumption = reading.current_reading - reading.previous_reading;
+      const consumptionCharge = consumption * rate;
+      const totalAmount = consumptionCharge + MONTHLY_FEE;
+      const now = new Date();
+      const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+      setInvoicePreview({
+        customer,
+        consumption,
+        kwhRate: rate,
+        consumptionCharge,
+        monthlyFee: MONTHLY_FEE,
+        totalAmount,
+        previousBalance: customer.current_balance || 0,
+        month,
+      });
+
+      setStep(3);
+    } catch (error) {
+      console.error('Error loading pending reading:', error);
+      showAlert('خطأ', 'حدث خطأ أثناء تحميل القراءة');
+      router.back();
+    } finally {
+      setInitializing(false);
+    }
+  };
 
   const fetchCustomers = async () => {
     try {
@@ -119,19 +175,24 @@ export default function CreateInvoiceScreen() {
 
     setLoading(true);
     try {
-      // Create reading first
-      const readingResponse = await readingsAPI.create({
-        customer_id: selectedCustomer.id,
-        previous_reading: parseFloat(readingData.previous_reading),
-        current_reading: parseFloat(readingData.current_reading),
-        reading_date: new Date().toISOString(),
-        notes: readingData.notes,
-      });
+      // Reuse the reading if it was already saved earlier (from "pending readings"),
+      // otherwise create it now.
+      let readingId = existingReadingId;
+      if (!readingId) {
+        const readingResponse = await readingsAPI.create({
+          customer_id: selectedCustomer.id,
+          previous_reading: parseFloat(readingData.previous_reading),
+          current_reading: parseFloat(readingData.current_reading),
+          reading_date: new Date().toISOString(),
+          notes: readingData.notes,
+        });
+        readingId = readingResponse.data.id;
+      }
 
       // Create invoice
       const invoiceResponse = await invoicesAPI.create({
         customer_id: selectedCustomer.id,
-        reading_id: readingResponse.data.id,
+        reading_id: readingId,
         month: invoicePreview.month,
         consumption_charge: invoicePreview.consumptionCharge,
         monthly_fee: invoicePreview.monthlyFee,
@@ -146,6 +207,40 @@ export default function CreateInvoiceScreen() {
       router.replace(`/invoices/${invoiceId}?autoWhatsApp=1`);
     } catch (error: any) {
       showAlert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء الحفظ');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Just records the meter reading without creating/sending an invoice yet —
+  // for when the price isn't decided or the invoice shouldn't go out right away.
+  const handleSaveReadingOnly = async () => {
+    if (!readingData.previous_reading || !readingData.current_reading) {
+      showAlert('خطأ', 'الرجاء إدخال القراءتين');
+      return;
+    }
+
+    const consumption =
+      parseFloat(readingData.current_reading) - parseFloat(readingData.previous_reading);
+
+    if (consumption < 0) {
+      showAlert('خطأ', 'القراءة الحالية يجب أن تكون أكبر من القراءة السابقة');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await readingsAPI.create({
+        customer_id: selectedCustomer.id,
+        previous_reading: parseFloat(readingData.previous_reading),
+        current_reading: parseFloat(readingData.current_reading),
+        reading_date: new Date().toISOString(),
+        notes: readingData.notes,
+      });
+      showAlert('نجاح', 'تم حفظ القراءة. يمكنك إصدار الفاتورة لاحقاً من "القراءات المعلقة"');
+      router.back();
+    } catch (error: any) {
+      showAlert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء حفظ القراءة');
     } finally {
       setLoading(false);
     }
@@ -302,6 +397,20 @@ export default function CreateInvoiceScreen() {
             حساب الفاتورة
           </Button>
         </View>
+
+        {!existingReadingId && (
+          <Button
+            mode="outlined"
+            onPress={handleSaveReadingOnly}
+            loading={loading}
+            disabled={loading}
+            style={styles.saveReadingButton}
+            textColor="#4CAF50"
+            icon="content-save-outline"
+          >
+            حفظ القراءة فقط (إصدار الفاتورة لاحقاً)
+          </Button>
+        )}
       </Card.Content>
     </Card>
   );
@@ -408,11 +517,18 @@ export default function CreateInvoiceScreen() {
           </View>
         </View>
 
-        <ScrollView style={styles.scrollView}>
-          {step === 1 && renderStep1()}
-          {step === 2 && renderStep2()}
-          {step === 3 && renderStep3()}
-        </ScrollView>
+        {initializing ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#4CAF50" />
+            <Text style={styles.loadingText}>جاري تحميل القراءة...</Text>
+          </View>
+        ) : (
+          <ScrollView style={styles.scrollView}>
+            {step === 1 && renderStep1()}
+            {step === 2 && renderStep2()}
+            {step === 3 && renderStep3()}
+          </ScrollView>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -467,6 +583,15 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#fff',
+    marginTop: 16,
   },
   card: {
     margin: 16,
@@ -582,6 +707,10 @@ const styles = StyleSheet.create({
   nextButton: {
     flex: 1,
     marginTop: 16,
+  },
+  saveReadingButton: {
+    marginTop: 16,
+    borderColor: '#4CAF50',
   },
   submitButton: {
     flex: 1,

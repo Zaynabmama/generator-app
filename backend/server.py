@@ -462,6 +462,26 @@ async def get_latest_reading(customer_id: str):
         "reading_date": reading.get('reading_date')
     }
 
+@api_router.get("/readings/pending")
+async def get_pending_readings():
+    """قراءات تم تسجيلها ولم يتم إصدار فاتورة لها بعد"""
+    invoiced_reading_ids = await db.invoices.distinct("reading_id")
+    invoiced_object_ids = [ObjectId(rid) for rid in invoiced_reading_ids if ObjectId.is_valid(rid)]
+
+    readings = await db.readings.find(
+        {"_id": {"$nin": invoiced_object_ids}}
+    ).sort('reading_date', -1).to_list(1000)
+
+    result = []
+    for r in readings:
+        customer = await db.customers.find_one({"_id": ObjectId(r['customer_id'])})
+        result.append({
+            **str_id(r),
+            "customer_name": customer['name'] if customer else 'غير معروف',
+            "customer_area": customer['area'] if customer else '',
+        })
+    return result
+
 @api_router.post("/readings/reset")
 async def reset_readings(scope: str = "month"):
     """تصفير قراءات العدادات

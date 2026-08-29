@@ -245,7 +245,16 @@ export default function DashboardScreen() {
                 >
                   إنشاء فاتورة جديدة
                 </Button>
-                
+
+                <Button
+                  mode="contained"
+                  icon="clipboard-clock-outline"
+                  onPress={() => router.push('/invoices/pending-readings')}
+                  style={styles.actionButton}
+                >
+                  القراءات المعلقة
+                </Button>
+
                 <Button
                   mode="contained"
                   icon="chart-line"

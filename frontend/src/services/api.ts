@@ -66,6 +66,7 @@ export const readingsAPI = {
   getAll: (params?: any) => api.get('/readings', { params }),
   getOne: (id: string) => api.get(`/readings/${id}`),
   getLatest: (customerId: string) => api.get(`/readings/latest/${customerId}`),
+  getPending: () => api.get('/readings/pending'),
   create: (data: any) => api.post('/readings', data),
   reset: (scope: 'month' | 'all' = 'month') => api.post(`/readings/reset?scope=${scope}`, {}),
 };
