@@ -77,8 +77,7 @@ export default function EditCustomerScreen() {
       !formData.name ||
       !formData.phone ||
       !formData.address ||
-      !formData.meter_number ||
-      !formData.generator_id
+      !formData.meter_number
     ) {
       showAlert('خطأ', 'الرجاء إدخال جميع الحقول المطلوبة');
       return;
@@ -196,7 +195,7 @@ export default function EditCustomerScreen() {
 
               {generators.length > 0 && (
                 <View style={styles.pickerContainer}>
-                  <Text style={styles.label}>المولد التابع له *</Text>
+                  <Text style={styles.label}>المولد التابع له</Text>
                   <View style={styles.pickerWrapper}>
                     <Picker
                       selectedValue={formData.generator_id}
