@@ -53,15 +53,26 @@ export default function DashboardScreen() {
             <Title style={styles.headerTitle}>لوحة التحكم</Title>
             <Text style={styles.headerSubtitle}>أبوعباس للإنارة</Text>
           </View>
-          <Button
-            mode="outlined"
-            onPress={handleLogout}
-            icon="logout"
-            compact
-            textColor="#FF5252"
-          >
-            خروج
-          </Button>
+          <View style={styles.headerActions}>
+            <Button
+              mode="outlined"
+              onPress={() => router.push('/settings')}
+              icon="cog"
+              compact
+              textColor="#4CAF50"
+            >
+              الإعدادات
+            </Button>
+            <Button
+              mode="outlined"
+              onPress={handleLogout}
+              icon="logout"
+              compact
+              textColor="#FF5252"
+            >
+              خروج
+            </Button>
+          </View>
         </View>
 
         {loading ? (
@@ -275,6 +286,10 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     fontSize: 14,
     color: '#999',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 8,
   },
   content: {
     padding: 16,

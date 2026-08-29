@@ -18,6 +18,7 @@ import { useRouter } from 'expo-router';
 import { customersAPI, readingsAPI, invoicesAPI } from '@/src/services/api';
 import { Picker } from '@react-native-picker/picker';
 import { showAlert } from '@/src/utils/alert';
+import { usePricing } from '@/src/hooks/use-pricing';
 
 export default function CreateInvoiceScreen() {
   const router = useRouter();
@@ -34,9 +35,8 @@ export default function CreateInvoiceScreen() {
 
   const [invoicePreview, setInvoicePreview] = useState<any>(null);
 
-  // Pricing constants
-  const CONSUMPTION_RATE = 0.85; // USD per kWh
-  const MONTHLY_FEE = 5.0; // Monthly subscription fee in USD
+  // Pricing — configurable from the settings screen
+  const { kwhRate: CONSUMPTION_RATE, monthlyFee: MONTHLY_FEE } = usePricing();
 
   useEffect(() => {
     fetchCustomers();

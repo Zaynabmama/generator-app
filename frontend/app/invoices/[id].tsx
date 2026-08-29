@@ -23,6 +23,7 @@ import * as Sharing from 'expo-sharing';
 import { invoicesAPI, customersAPI, readingsAPI, generatorsAPI } from '@/src/services/api';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { showAlert } from '@/src/utils/alert';
+import { usePricing } from '@/src/hooks/use-pricing';
 
 export default function InvoiceDetailScreen() {
   const params = useLocalSearchParams<{ id: string; autoWhatsApp?: string }>();
@@ -39,10 +40,12 @@ export default function InvoiceDetailScreen() {
   const [autoSendTriggered, setAutoSendTriggered] = useState(false);
   const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
 
+  const { kwhRate } = usePricing();
+
   const BUSINESS_INFO = {
     name: 'أبو عباس للإنارة',
     phones: '76/942194 - 70/572160',
-    kwh_price: 0.85,
+    kwh_price: kwhRate,
   };
 
   useEffect(() => {
