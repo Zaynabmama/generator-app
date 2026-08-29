@@ -472,17 +472,12 @@ export default function InvoiceDetailScreen() {
   const handleWhatsAppSend = async () => {
     if (!customer || !invoice) return;
 
-    setSending(true);
-    try {
-      // First generate PDF
-      const uri = await generatePDF();
-      
-      const phone = formatPhoneForWhatsApp(customer.phone);
-      const consumption = reading.current_reading - reading.previous_reading;
-      const monthName = invoice.month.split('-').reverse().join('/');
-      const totalDue = invoice.total_amount + invoice.previous_balance;
+    const phone = formatPhoneForWhatsApp(customer.phone);
+    const consumption = reading.current_reading - reading.previous_reading;
+    const monthName = invoice.month.split('-').reverse().join('/');
+    const totalDue = invoice.total_amount + invoice.previous_balance;
 
-      const message = 
+    const message =
 `*${BUSINESS_INFO.name}*
 اشتراك ${customer.area}
 ${BUSINESS_INFO.phones}
@@ -508,9 +503,22 @@ ${BUSINESS_INFO.phones}
 
 تدفع في المحل من 1 لغاية 5 الشهر`;
 
-      const encodedMessage = encodeURIComponent(message);
+    const encodedMessage = encodeURIComponent(message);
+    const webUrl = `https://wa.me/${phone}?text=${encodedMessage}`;
+
+    if (Platform.OS === 'web') {
+      // Open immediately, synchronously with the click — anything awaited first
+      // (like generatePDF's print window) gets this popup blocked by the browser.
+      // generatePDF() also can't produce a file to attach on web anyway (returns null).
+      window.open(webUrl, '_blank');
+      return;
+    }
+
+    setSending(true);
+    try {
+      // First generate PDF
+      const uri = await generatePDF();
       const whatsappUrl = `whatsapp://send?phone=${phone}&text=${encodedMessage}`;
-      const webUrl = `https://wa.me/${phone}?text=${encodedMessage}`;
 
       // Try to open WhatsApp app first
       const canOpen = await Linking.canOpenURL(whatsappUrl);
