@@ -330,21 +330,30 @@ async def get_customer(customer_id: str):
 
 @api_router.put("/customers/{customer_id}", response_model=Customer)
 async def update_customer(customer_id: str, customer: CustomerCreate):
+    existing = await db.customers.find_one({"_id": ObjectId(customer_id)})
+    if not existing:
+        raise HTTPException(status_code=404, detail="المشترك غير موجود")
+
     customer_dict = customer.dict()
     customer_dict['updated_at'] = datetime.utcnow()
 
-    result = await db.customers.update_one(
+    await db.customers.update_one(
         {"_id": ObjectId(customer_id)},
         {"$set": customer_dict}
     )
 
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="المشترك غير موجود")
-
-    # previous_balance only drives current_balance for a customer with no
-    # invoices yet — once invoices exist, current_balance tracks their real
-    # remaining amount and shouldn't be overwritten by editing this field.
-    await recalculate_customer_balance(customer_id, fallback_balance=customer.previous_balance)
+    # A deliberate change to previous_balance is treated as the owner
+    # correcting this customer's balance, so apply it to current_balance
+    # right away regardless of invoice history. Leaving the field untouched
+    # (the common case — editing something else entirely) must NOT touch
+    # current_balance, since it may be precisely tracking a real invoice's
+    # remaining amount that this edit had nothing to do with.
+    old_previous_balance = existing.get('previous_balance', 0.0)
+    if customer.previous_balance != old_previous_balance:
+        await db.customers.update_one(
+            {"_id": ObjectId(customer_id)},
+            {"$set": {"current_balance": customer.previous_balance}}
+        )
 
     updated = await db.customers.find_one({"_id": ObjectId(customer_id)})
     return Customer(**str_id(updated))
