@@ -20,6 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { customersAPI, readingsAPI, invoicesAPI } from '@/src/services/api';
 import { showAlert } from '@/src/utils/alert';
+import { sanitizeDecimal } from '@/src/utils/numeric-input';
 import { usePricing } from '@/src/hooks/use-pricing';
 
 // Invoices usually bill for the month just finished — e.g. an invoice
@@ -401,7 +402,7 @@ export default function CreateInvoiceScreen() {
           label="القراءة السابقة *"
           value={readingData.previous_reading}
           onChangeText={(text) =>
-            setReadingData({ ...readingData, previous_reading: text })
+            setReadingData({ ...readingData, previous_reading: sanitizeDecimal(text) })
           }
           mode="outlined"
           keyboardType="numeric"
@@ -417,7 +418,7 @@ export default function CreateInvoiceScreen() {
           label="القراءة الحالية *"
           value={readingData.current_reading}
           onChangeText={(text) =>
-            setReadingData({ ...readingData, current_reading: text })
+            setReadingData({ ...readingData, current_reading: sanitizeDecimal(text) })
           }
           mode="outlined"
           keyboardType="numeric"

@@ -20,6 +20,7 @@ import { useFocusEffect } from 'expo-router';
 import { generatorsAPI } from '@/src/services/api';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { showAlert } from '@/src/utils/alert';
+import { sanitizeDigits } from '@/src/utils/numeric-input';
 
 export default function GeneratorsScreen() {
   const [generators, setGenerators] = useState<any[]>([]);
@@ -218,7 +219,9 @@ export default function GeneratorsScreen() {
             <TextInput
               label="القدرة (kVA)"
               value={formData.capacity}
-              onChangeText={(text) => setFormData({ ...formData, capacity: text })}
+              onChangeText={(text) =>
+                setFormData({ ...formData, capacity: sanitizeDigits(text) })
+              }
               mode="outlined"
               keyboardType="numeric"
               style={styles.input}

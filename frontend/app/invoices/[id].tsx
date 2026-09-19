@@ -23,6 +23,7 @@ import * as Sharing from 'expo-sharing';
 import { invoicesAPI, customersAPI, readingsAPI, generatorsAPI } from '@/src/services/api';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { showAlert } from '@/src/utils/alert';
+import { sanitizeDecimal } from '@/src/utils/numeric-input';
 
 export default function InvoiceDetailScreen() {
   const params = useLocalSearchParams<{ id: string; autoWhatsApp?: string }>();
@@ -751,7 +752,7 @@ ${BUSINESS_INFO.phones}
             <PaperInput
               label="مبلغ الدفعة"
               value={paymentAmount}
-              onChangeText={setPaymentAmount}
+              onChangeText={(text) => setPaymentAmount(sanitizeDecimal(text))}
               keyboardType="numeric"
               mode="outlined"
               style={styles.dialogInput}

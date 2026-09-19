@@ -20,6 +20,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { customersAPI, generatorsAPI } from '@/src/services/api';
 import { Picker } from '@react-native-picker/picker';
 import { showAlert } from '@/src/utils/alert';
+import { sanitizeDigits, sanitizeDecimal } from '@/src/utils/numeric-input';
 
 export default function EditCustomerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -148,7 +149,9 @@ export default function EditCustomerScreen() {
               <TextInput
                 label="رقم الهاتف *"
                 value={formData.phone}
-                onChangeText={(text) => setFormData({ ...formData, phone: text })}
+                onChangeText={(text) =>
+                  setFormData({ ...formData, phone: sanitizeDigits(text) })
+                }
                 mode="outlined"
                 keyboardType="phone-pad"
                 style={styles.input}
@@ -176,9 +179,10 @@ export default function EditCustomerScreen() {
                 label="رقم العداد *"
                 value={formData.meter_number}
                 onChangeText={(text) =>
-                  setFormData({ ...formData, meter_number: text })
+                  setFormData({ ...formData, meter_number: sanitizeDigits(text) })
                 }
                 mode="outlined"
+                keyboardType="numeric"
                 style={styles.input}
                 testID="edit-meter"
               />
@@ -211,7 +215,7 @@ export default function EditCustomerScreen() {
                 label="الرصيد السابق ($)"
                 value={formData.previous_balance}
                 onChangeText={(text) =>
-                  setFormData({ ...formData, previous_balance: text })
+                  setFormData({ ...formData, previous_balance: sanitizeDecimal(text) })
                 }
                 mode="outlined"
                 keyboardType="numeric"
@@ -222,7 +226,7 @@ export default function EditCustomerScreen() {
                 label="سعر الكيلوواط الخاص بهذا المشترك ($)"
                 value={formData.kwh_rate}
                 onChangeText={(text) =>
-                  setFormData({ ...formData, kwh_rate: text })
+                  setFormData({ ...formData, kwh_rate: sanitizeDecimal(text) })
                 }
                 mode="outlined"
                 keyboardType="numeric"

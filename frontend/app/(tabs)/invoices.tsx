@@ -23,6 +23,7 @@ import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { invoicesAPI, customersAPI } from '@/src/services/api';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { showAlert } from '@/src/utils/alert';
+import { sanitizeDecimal } from '@/src/utils/numeric-input';
 
 export default function InvoicesScreen() {
   const router = useRouter();
@@ -380,7 +381,7 @@ export default function InvoicesScreen() {
                 <PaperInput
                   label="مبلغ الدفعة"
                   value={paymentAmount}
-                  onChangeText={setPaymentAmount}
+                  onChangeText={(text) => setPaymentAmount(sanitizeDecimal(text))}
                   keyboardType="numeric"
                   mode="outlined"
                   style={styles.input}

@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { getPricing, savePricing } from '@/src/hooks/use-pricing';
 import { showAlert } from '@/src/utils/alert';
+import { sanitizeDecimal } from '@/src/utils/numeric-input';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -76,7 +77,7 @@ export default function SettingsScreen() {
               <TextInput
                 label="سعر الكيلوواط ($)"
                 value={kwhRate}
-                onChangeText={setKwhRate}
+                onChangeText={(text) => setKwhRate(sanitizeDecimal(text))}
                 mode="outlined"
                 keyboardType="numeric"
                 style={styles.input}
@@ -86,7 +87,7 @@ export default function SettingsScreen() {
               <TextInput
                 label="رسم الاشتراك الشهري ($)"
                 value={monthlyFee}
-                onChangeText={setMonthlyFee}
+                onChangeText={(text) => setMonthlyFee(sanitizeDecimal(text))}
                 mode="outlined"
                 keyboardType="numeric"
                 style={styles.input}

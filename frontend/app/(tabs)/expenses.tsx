@@ -24,6 +24,7 @@ import { useFocusEffect } from 'expo-router';
 import { expensesAPI, dashboardAPI, readingsAPI } from '@/src/services/api';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { showAlert } from '@/src/utils/alert';
+import { sanitizeDecimal } from '@/src/utils/numeric-input';
 
 export default function ExpensesScreen() {
   const [expenses, setExpenses] = useState<any[]>([]);
@@ -360,7 +361,9 @@ export default function ExpensesScreen() {
               <TextInput
                 label="المبلغ ($) *"
                 value={formData.amount}
-                onChangeText={(text) => setFormData({ ...formData, amount: text })}
+                onChangeText={(text) =>
+                  setFormData({ ...formData, amount: sanitizeDecimal(text) })
+                }
                 mode="outlined"
                 keyboardType="numeric"
                 style={styles.dialogInput}

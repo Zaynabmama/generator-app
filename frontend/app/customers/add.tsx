@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { customersAPI } from '@/src/services/api';
 import { showAlert } from '@/src/utils/alert';
+import { sanitizeDigits, sanitizeDecimal } from '@/src/utils/numeric-input';
 
 export default function AddCustomerScreen() {
   const router = useRouter();
@@ -97,7 +98,9 @@ export default function AddCustomerScreen() {
               <TextInput
                 label="رقم الهاتف *"
                 value={formData.phone}
-                onChangeText={(text) => setFormData({ ...formData, phone: text })}
+                onChangeText={(text) =>
+                  setFormData({ ...formData, phone: sanitizeDigits(text) })
+                }
                 mode="outlined"
                 keyboardType="phone-pad"
                 style={styles.input}
@@ -124,9 +127,10 @@ export default function AddCustomerScreen() {
                 label="رقم العداد *"
                 value={formData.meter_number}
                 onChangeText={(text) =>
-                  setFormData({ ...formData, meter_number: text })
+                  setFormData({ ...formData, meter_number: sanitizeDigits(text) })
                 }
                 mode="outlined"
+                keyboardType="numeric"
                 style={styles.input}
               />
 
@@ -134,7 +138,7 @@ export default function AddCustomerScreen() {
                 label="الرصيد السابق ($)"
                 value={formData.previous_balance}
                 onChangeText={(text) =>
-                  setFormData({ ...formData, previous_balance: text })
+                  setFormData({ ...formData, previous_balance: sanitizeDecimal(text) })
                 }
                 mode="outlined"
                 keyboardType="numeric"
@@ -145,7 +149,7 @@ export default function AddCustomerScreen() {
                 label="سعر الكيلوواط الخاص بهذا المشترك ($)"
                 value={formData.kwh_rate}
                 onChangeText={(text) =>
-                  setFormData({ ...formData, kwh_rate: text })
+                  setFormData({ ...formData, kwh_rate: sanitizeDecimal(text) })
                 }
                 mode="outlined"
                 keyboardType="numeric"
