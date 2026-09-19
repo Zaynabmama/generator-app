@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -38,12 +38,9 @@ export default function CustomersScreen() {
 
   const fetchData = async () => {
     try {
-      const params: any = {};
-      if (searchQuery) params.search = searchQuery;
-      if (selectedArea) params.area = selectedArea;
-
+      setLoading(true);
       const [customersRes, generatorsRes] = await Promise.all([
-        customersAPI.getAll(params),
+        customersAPI.getAll(),
         generatorsAPI.getAll(),
       ]);
 
@@ -59,13 +56,25 @@ export default function CustomersScreen() {
 
   useEffect(() => {
     fetchData();
-  }, [searchQuery, selectedArea]);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       fetchData();
-    }, [searchQuery, selectedArea])
+    }, [])
   );
+
+  const filteredCustomers = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return customers.filter((c) => {
+      const matchesArea = !selectedArea || c.area === selectedArea;
+      const matchesSearch =
+        !query ||
+        c.name?.toLowerCase().includes(query) ||
+        c.phone?.toLowerCase().includes(query);
+      return matchesArea && matchesSearch;
+    });
+  }, [customers, searchQuery, selectedArea]);
 
   const getGeneratorName = (generatorId: string) => {
     const generator = generators.find((g) => g.id === generatorId);
@@ -227,15 +236,18 @@ export default function CustomersScreen() {
       </View>
 
       <FlatList
-        data={customers}
+        data={filteredCustomers}
         renderItem={renderCustomer}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         refreshing={loading}
         onRefresh={fetchData}
+        keyboardShouldPersistTaps="handled"
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>لا توجد بيانات</Text>
+            <Text style={styles.emptyText}>
+              {customers.length === 0 ? 'لا توجد بيانات' : 'لا توجد نتائج مطابقة'}
+            </Text>
           </View>
         }
       />
