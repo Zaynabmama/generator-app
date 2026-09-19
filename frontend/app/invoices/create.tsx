@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   StyleSheet,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  TouchableOpacity,
 } from 'react-native';
 import {
   Text,
@@ -13,11 +14,11 @@ import {
   Card,
   SegmentedButtons,
   ActivityIndicator,
+  Searchbar,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { customersAPI, readingsAPI, invoicesAPI } from '@/src/services/api';
-import { Picker } from '@react-native-picker/picker';
 import { showAlert } from '@/src/utils/alert';
 import { usePricing } from '@/src/hooks/use-pricing';
 
@@ -28,6 +29,7 @@ export default function CreateInvoiceScreen() {
   const [initializing, setInitializing] = useState(!!params.readingId);
   const [customers, setCustomers] = useState<any[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
+  const [customerSearch, setCustomerSearch] = useState('');
   const [step, setStep] = useState(1); // 1: Select customer, 2: Enter reading, 3: Review
   // Set when arriving from a previously-saved (not yet invoiced) reading —
   // the reading already exists, so submit shouldn't create another one.
@@ -107,10 +109,22 @@ export default function CreateInvoiceScreen() {
     }
   };
 
+  const filteredCustomers = useMemo(() => {
+    const query = customerSearch.trim().toLowerCase();
+    if (!query) return customers;
+    return customers.filter(
+      (c) =>
+        c.name?.toLowerCase().includes(query) ||
+        c.phone?.toLowerCase().includes(query) ||
+        c.area?.toLowerCase().includes(query)
+    );
+  }, [customers, customerSearch]);
+
   const handleCustomerSelect = async (customerId: string) => {
     const customer = customers.find((c) => c.id === customerId);
     setSelectedCustomer(customer);
-    
+    setCustomerSearch('');
+
     // Fetch latest reading to auto-populate previous_reading
     if (customerId && customer) {
       try {
@@ -251,31 +265,52 @@ export default function CreateInvoiceScreen() {
       <Card.Content>
         <Text style={styles.sectionTitle}>اختر المشترك</Text>
         {customers.length > 0 ? (
-          <View style={styles.pickerContainer}>
-            <View style={styles.pickerWrapper}>
-              <Picker
-                selectedValue={selectedCustomer?.id || ''}
-                onValueChange={handleCustomerSelect}
-                style={styles.picker}
-                dropdownIconColor="#fff"
-              >
-                <Picker.Item label="اختر مشترك..." value="" />
-                {customers.map((customer) => (
-                  <Picker.Item
-                    key={customer.id}
-                    label={`${customer.name} - ${customer.area}`}
-                    value={customer.id}
-                  />
-                ))}
-              </Picker>
-            </View>
-          </View>
+          !selectedCustomer && (
+            <>
+              <Searchbar
+                placeholder="ابحث بالاسم أو رقم الهاتف أو المنطقة"
+                onChangeText={setCustomerSearch}
+                value={customerSearch}
+                style={styles.searchbar}
+              />
+              <View style={styles.customerListWrapper}>
+                <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                  {filteredCustomers.length > 0 ? (
+                    filteredCustomers.map((customer) => (
+                      <TouchableOpacity
+                        key={customer.id}
+                        onPress={() => handleCustomerSelect(customer.id)}
+                        style={styles.customerListItem}
+                      >
+                        <Text style={styles.customerListName}>{customer.name}</Text>
+                        <Text style={styles.customerListDetail}>
+                          {customer.area} · {customer.phone}
+                        </Text>
+                      </TouchableOpacity>
+                    ))
+                  ) : (
+                    <Text style={styles.noDataText}>لا توجد نتائج مطابقة</Text>
+                  )}
+                </ScrollView>
+              </View>
+            </>
+          )
         ) : (
           <Text style={styles.noDataText}>لا يوجد مشتركين</Text>
         )}
 
         {selectedCustomer && (
           <View style={styles.customerInfo}>
+            <Button
+              mode="text"
+              onPress={() => setSelectedCustomer(null)}
+              style={styles.changeCustomerButton}
+              textColor="#4CAF50"
+              compact
+            >
+              تغيير المشترك
+            </Button>
+
             <Text style={styles.infoLabel}>الاسم:</Text>
             <Text style={styles.infoValue}>{selectedCustomer.name}</Text>
 
@@ -607,18 +642,28 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     backgroundColor: '#1E1E1E',
   },
-  pickerContainer: {
-    marginBottom: 16,
-  },
-  pickerWrapper: {
+  searchbar: {
     backgroundColor: '#2A2A2A',
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#666',
+    marginBottom: 12,
   },
-  picker: {
+  customerListWrapper: {
+    maxHeight: 320,
+    backgroundColor: '#2A2A2A',
+    borderRadius: 8,
+  },
+  customerListItem: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#3A3A3A',
+  },
+  customerListName: {
+    fontSize: 16,
     color: '#fff',
-    height: 50,
+    marginBottom: 2,
+  },
+  customerListDetail: {
+    fontSize: 13,
+    color: '#999',
   },
   noDataText: {
     color: '#999',
@@ -630,6 +675,10 @@ const styles = StyleSheet.create({
     padding: 16,
     backgroundColor: '#2A2A2A',
     borderRadius: 8,
+  },
+  changeCustomerButton: {
+    alignSelf: 'flex-end',
+    marginBottom: -8,
   },
   infoLabel: {
     fontSize: 14,
