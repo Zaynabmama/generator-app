@@ -17,12 +17,14 @@ import {
   Button,
   Portal,
   Dialog,
+  TextInput as PaperInput,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { customersAPI, generatorsAPI } from '@/src/services/api';
+import { customersAPI, generatorsAPI, invoicesAPI } from '@/src/services/api';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { showAlert } from '@/src/utils/alert';
+import { sanitizeDecimal } from '@/src/utils/numeric-input';
 
 export default function CustomersScreen() {
   const router = useRouter();
@@ -34,6 +36,10 @@ export default function CustomersScreen() {
   const [menuVisible, setMenuVisible] = useState<string | null>(null);
   const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
   const [customerToDelete, setCustomerToDelete] = useState<any>(null);
+  const [paymentDialogVisible, setPaymentDialogVisible] = useState(false);
+  const [customerForPayment, setCustomerForPayment] = useState<any>(null);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [payingLoading, setPayingLoading] = useState(false);
 
   const areas = ['المسعودية', 'الشرقي', 'الحيصة', 'الغربي'];
 
@@ -109,6 +115,60 @@ export default function CustomersScreen() {
     }
   };
 
+  // Lets a customer pay against their balance at any time — not just when a
+  // new meter reading/invoice has just been created for them. The payment
+  // is applied to their oldest unpaid/partial invoice, same as a normal
+  // invoice payment would be.
+  const handleRecordPayment = (customer: any) => {
+    setMenuVisible(null);
+    setCustomerForPayment(customer);
+    setPaymentAmount(customer.current_balance > 0 ? customer.current_balance.toString() : '');
+    setPaymentDialogVisible(true);
+  };
+
+  const submitCustomerPayment = async () => {
+    if (!customerForPayment) return;
+    const amount = parseFloat(paymentAmount);
+    if (!paymentAmount || isNaN(amount) || amount <= 0) {
+      showAlert('خطأ', 'الرجاء إدخال مبلغ صحيح');
+      return;
+    }
+
+    setPayingLoading(true);
+    try {
+      const response = await invoicesAPI.getAll({ customer_id: customerForPayment.id });
+      // Backend returns invoices newest-first, so the last unpaid one found is the oldest.
+      const unpaidInvoices = response.data.filter((inv: any) => inv.status !== 'paid');
+      const oldestInvoice = unpaidInvoices[unpaidInvoices.length - 1];
+
+      if (!oldestInvoice) {
+        showAlert('تنبيه', 'لا توجد فواتير غير مدفوعة لهذا المشترك لتسجيل الدفعة عليها');
+        return;
+      }
+
+      await invoicesAPI.addPayment(oldestInvoice.id, {
+        amount,
+        payment_date: new Date().toISOString(),
+        notes: 'دفعة عامة من صفحة المشتركين',
+      });
+
+      setPaymentDialogVisible(false);
+      await fetchData();
+
+      showAlert('نجاح', 'تم تسجيل الدفعة بنجاح', [
+        { text: 'حسناً', style: 'cancel' },
+        {
+          text: 'عرض الفاتورة وإرسالها',
+          onPress: () => router.push(`/invoices/${oldestInvoice.id}`),
+        },
+      ]);
+    } catch (error: any) {
+      showAlert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء تسجيل الدفعة');
+    } finally {
+      setPayingLoading(false);
+    }
+  };
+
   const renderCustomer = ({ item }: any) => (
     <TouchableOpacity
       onPress={() => router.push(`/customers/${item.id}`)}
@@ -159,6 +219,12 @@ export default function CustomersScreen() {
               title={item.is_suspended ? 'إعادة تفعيل' : 'تعليق العداد'}
               leadingIcon={item.is_suspended ? 'play-circle' : 'pause-circle'}
               testID={`suspend-${item.id}`}
+            />
+            <Menu.Item
+              onPress={() => handleRecordPayment(item)}
+              title="تسجيل دفعة"
+              leadingIcon="cash-plus"
+              testID={`payment-${item.id}`}
             />
             <Menu.Item
               onPress={() => {
@@ -295,6 +361,39 @@ export default function CustomersScreen() {
               testID="confirm-delete-btn"
             >
               حذف نهائياً
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+
+      <Portal>
+        <Dialog
+          visible={paymentDialogVisible}
+          onDismiss={() => setPaymentDialogVisible(false)}
+        >
+          <Dialog.Title>تسجيل دفعة</Dialog.Title>
+          <Dialog.Content>
+            <Text style={{ color: '#ccc' }}>
+              المشترك: {customerForPayment?.name}
+            </Text>
+            {customerForPayment?.current_balance > 0 && (
+              <Text style={{ color: '#999', marginTop: 4, fontSize: 13 }}>
+                الرصيد الحالي: ${customerForPayment.current_balance.toFixed(2)}
+              </Text>
+            )}
+            <PaperInput
+              label="مبلغ الدفعة"
+              value={paymentAmount}
+              onChangeText={(text) => setPaymentAmount(sanitizeDecimal(text))}
+              keyboardType="numeric"
+              mode="outlined"
+              style={{ marginTop: 12 }}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setPaymentDialogVisible(false)}>إلغاء</Button>
+            <Button onPress={submitCustomerPayment} loading={payingLoading} disabled={payingLoading}>
+              تسجيل
             </Button>
           </Dialog.Actions>
         </Dialog>
