@@ -80,6 +80,11 @@ export const invoicesAPI = {
   delete: (id: string) => api.delete(`/invoices/${id}`),
 };
 
+// Payments
+export const paymentsAPI = {
+  getAll: (params?: any) => api.get('/payments', { params }),
+};
+
 // Expenses
 export const expensesAPI = {
   getAll: (params?: any) => api.get('/expenses', { params }),

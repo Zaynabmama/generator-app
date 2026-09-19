@@ -21,10 +21,19 @@ export function formatPhoneForWhatsApp(phone: string): string {
   return cleaned;
 }
 
-export function buildInvoiceMessage(customer: any, invoice: any, reading: any): string {
+const formatPaymentDate = (dateStr: string) => new Date(dateStr).toLocaleDateString('en-GB');
+
+export function buildInvoiceMessage(customer: any, invoice: any, reading: any, payments: any[] = []): string {
   const consumption = reading.current_reading - reading.previous_reading;
   const monthName = invoice.month.split('-').reverse().join('/');
   const totalDue = invoice.total_amount + invoice.previous_balance;
+
+  const paymentsSection =
+    payments.length > 0
+      ? `\nسجل الدفعات:\n${payments
+          .map((p) => `- ${formatPaymentDate(p.payment_date)}: $${p.amount.toFixed(2)}`)
+          .join('\n')}\n`
+      : '';
 
   return `*${BUSINESS_INFO.name}*
 اشتراك ${customer.area}
@@ -47,12 +56,12 @@ ${BUSINESS_INFO.phones}
 *المجموع: $${totalDue.toFixed(2)}*
 واصل: $${invoice.amount_paid.toFixed(2)}
 *الباقي: $${invoice.remaining_amount.toFixed(2)}*
-
+${paymentsSection}
 تدفع في المحل من 1 لغاية 5 الشهر`;
 }
 
-export function buildInvoiceWhatsAppWebUrl(customer: any, invoice: any, reading: any): string {
+export function buildInvoiceWhatsAppWebUrl(customer: any, invoice: any, reading: any, payments: any[] = []): string {
   const phone = formatPhoneForWhatsApp(customer.phone);
-  const message = buildInvoiceMessage(customer, invoice, reading);
+  const message = buildInvoiceMessage(customer, invoice, reading, payments);
   return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
 }

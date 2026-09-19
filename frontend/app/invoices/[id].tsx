@@ -20,7 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { invoicesAPI, customersAPI, readingsAPI, generatorsAPI } from '@/src/services/api';
+import { invoicesAPI, customersAPI, readingsAPI, generatorsAPI, paymentsAPI } from '@/src/services/api';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { showAlert } from '@/src/utils/alert';
 import { sanitizeDecimal } from '@/src/utils/numeric-input';
@@ -36,6 +36,7 @@ export default function InvoiceDetailScreen() {
   const [customer, setCustomer] = useState<any>(null);
   const [reading, setReading] = useState<any>(null);
   const [generator, setGenerator] = useState<any>(null);
+  const [payments, setPayments] = useState<any[]>([]);
   const [paymentDialogVisible, setPaymentDialogVisible] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [autoSendTriggered, setAutoSendTriggered] = useState(false);
@@ -60,12 +61,14 @@ export default function InvoiceDetailScreen() {
       const invoiceRes = await invoicesAPI.getOne(id!);
       setInvoice(invoiceRes.data);
 
-      const [customerRes, readingRes] = await Promise.all([
+      const [customerRes, readingRes, paymentsRes] = await Promise.all([
         customersAPI.getOne(invoiceRes.data.customer_id),
         readingsAPI.getOne(invoiceRes.data.reading_id),
+        paymentsAPI.getAll({ invoice_id: id }),
       ]);
       setCustomer(customerRes.data);
       setReading(readingRes.data);
+      setPayments(paymentsRes.data);
 
       if (customerRes.data.generator_id) {
         try {
@@ -450,9 +453,9 @@ export default function InvoiceDetailScreen() {
     if (!customer || !invoice) return;
 
     const phone = formatPhoneForWhatsApp(customer.phone);
-    const message = buildInvoiceMessage(customer, invoice, reading);
+    const message = buildInvoiceMessage(customer, invoice, reading, payments);
     const encodedMessage = encodeURIComponent(message);
-    const webUrl = buildInvoiceWhatsAppWebUrl(customer, invoice, reading);
+    const webUrl = buildInvoiceWhatsAppWebUrl(customer, invoice, reading, payments);
 
     if (Platform.OS === 'web') {
       // Open immediately, synchronously with the click — anything awaited first
@@ -618,6 +621,24 @@ export default function InvoiceDetailScreen() {
           </Card.Content>
         </Card>
 
+        {payments.length > 0 && (
+          <Card style={styles.card}>
+            <Card.Content>
+              <Text style={styles.sectionTitle}>سجل الدفعات</Text>
+              {payments.map((payment) => (
+                <View key={payment.id} style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>
+                    {new Date(payment.payment_date).toLocaleDateString('en-GB')}
+                  </Text>
+                  <Text style={[styles.detailValue, { color: '#4CAF50' }]}>
+                    ${payment.amount.toFixed(2)}
+                  </Text>
+                </View>
+              ))}
+            </Card.Content>
+          </Card>
+        )}
+
         {/* Action Buttons */}
         <View style={styles.buttonsContainer}>
           {invoice.status !== 'paid' && (
@@ -779,6 +800,12 @@ const styles = StyleSheet.create({
   card: {
     margin: 16,
     backgroundColor: '#fff',
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
   },
   invoiceContainer: {
     padding: 8,

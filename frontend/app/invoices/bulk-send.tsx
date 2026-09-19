@@ -3,12 +3,12 @@ import { View, StyleSheet, ScrollView } from 'react-native';
 import { Text, Button, Chip, ActivityIndicator, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { invoicesAPI, customersAPI, readingsAPI } from '@/src/services/api';
+import { invoicesAPI, customersAPI, readingsAPI, paymentsAPI } from '@/src/services/api';
 import { showAlert } from '@/src/utils/alert';
 import { getBillingMonth, shiftMonth, formatMonthDisplay } from '@/src/utils/billing-month';
 import { buildInvoiceWhatsAppWebUrl } from '@/src/utils/whatsapp-invoice';
 
-type QueueItem = { invoice: any; customer: any; reading: any };
+type QueueItem = { invoice: any; customer: any; reading: any; payments: any[] };
 
 export default function BulkSendScreen() {
   const router = useRouter();
@@ -21,10 +21,11 @@ export default function BulkSendScreen() {
   const fetchQueue = async (targetMonth: string) => {
     try {
       setLoading(true);
-      const [invoicesRes, customersRes, readingsRes] = await Promise.all([
+      const [invoicesRes, customersRes, readingsRes, paymentsRes] = await Promise.all([
         invoicesAPI.getAll({ month: targetMonth }),
         customersAPI.getAll(),
         readingsAPI.getAll(),
+        paymentsAPI.getAll(),
       ]);
 
       const customersById: Record<string, any> = {};
@@ -33,12 +34,19 @@ export default function BulkSendScreen() {
       const readingsById: Record<string, any> = {};
       readingsRes.data.forEach((r: any) => (readingsById[r.id] = r));
 
+      const paymentsByInvoice: Record<string, any[]> = {};
+      paymentsRes.data.forEach((p: any) => {
+        if (!paymentsByInvoice[p.invoice_id]) paymentsByInvoice[p.invoice_id] = [];
+        paymentsByInvoice[p.invoice_id].push(p);
+      });
+
       const items: QueueItem[] = invoicesRes.data
         .filter((inv: any) => inv.status !== 'paid')
         .map((inv: any) => ({
           invoice: inv,
           customer: customersById[inv.customer_id],
           reading: readingsById[inv.reading_id],
+          payments: paymentsByInvoice[inv.id] || [],
         }))
         .filter((item: QueueItem) => item.customer && item.reading);
 
@@ -74,7 +82,7 @@ export default function BulkSendScreen() {
   const current = pendingQueue[0];
 
   const handleSend = (item: QueueItem) => {
-    const url = buildInvoiceWhatsAppWebUrl(item.customer, item.invoice, item.reading);
+    const url = buildInvoiceWhatsAppWebUrl(item.customer, item.invoice, item.reading, item.payments);
     window.open(url, '_blank');
     setSentIds((prev) => new Set(prev).add(item.invoice.id));
   };

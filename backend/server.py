@@ -229,6 +229,15 @@ class PaymentCreate(BaseModel):
     payment_date: datetime = Field(default_factory=datetime.utcnow)
     notes: str = ""
 
+class Payment(BaseModel):
+    id: Optional[str] = None
+    invoice_id: str
+    customer_id: str
+    amount: float
+    payment_date: datetime
+    notes: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
 # ==================== Authentication ====================
 
 @auth_router.post("/auth/login", response_model=LoginResponse)
@@ -666,6 +675,17 @@ async def add_payment(invoice_id: str, payment: PaymentCreate):
     await db.payments.insert_one(payment_dict)
     
     return {"message": "تم تسجيل الدفعة بنجاح", "new_remaining": new_remaining}
+
+@api_router.get("/payments", response_model=List[Payment])
+async def get_payments(invoice_id: Optional[str] = None, customer_id: Optional[str] = None):
+    query = {}
+    if invoice_id:
+        query['invoice_id'] = invoice_id
+    if customer_id:
+        query['customer_id'] = customer_id
+
+    payments = await db.payments.find(query).sort('payment_date', 1).to_list(1000)
+    return [Payment(**str_id(p)) for p in payments]
 
 @api_router.delete("/invoices/{invoice_id}")
 async def delete_invoice(invoice_id: str):
