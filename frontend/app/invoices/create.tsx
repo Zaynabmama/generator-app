@@ -22,6 +22,14 @@ import { customersAPI, readingsAPI, invoicesAPI } from '@/src/services/api';
 import { showAlert } from '@/src/utils/alert';
 import { usePricing } from '@/src/hooks/use-pricing';
 
+// Invoices bill for the month just finished — e.g. an invoice created in
+// September covers August's consumption.
+const getBillingMonth = () => {
+  const now = new Date();
+  const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return `${previousMonth.getFullYear()}-${String(previousMonth.getMonth() + 1).padStart(2, '0')}`;
+};
+
 export default function CreateInvoiceScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ readingId?: string }>();
@@ -76,8 +84,7 @@ export default function CreateInvoiceScreen() {
       const consumption = reading.current_reading - reading.previous_reading;
       const consumptionCharge = consumption * rate;
       const totalAmount = consumptionCharge + MONTHLY_FEE;
-      const now = new Date();
-      const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const month = getBillingMonth();
 
       setInvoicePreview({
         customer,
@@ -167,8 +174,7 @@ export default function CreateInvoiceScreen() {
     const consumptionCharge = consumption * rate;
     const totalAmount = consumptionCharge + MONTHLY_FEE;
 
-    const now = new Date();
-    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const month = getBillingMonth();
 
     setInvoicePreview({
       customer: selectedCustomer,
