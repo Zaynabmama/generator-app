@@ -24,7 +24,6 @@ export default function AddCustomerScreen() {
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
-    address: '',
     area: 'المسعودية',
     meter_number: '',
     previous_balance: '0',
@@ -38,7 +37,6 @@ export default function AddCustomerScreen() {
     if (
       !formData.name ||
       !formData.phone ||
-      !formData.address ||
       !formData.meter_number
     ) {
       showAlert('خطأ', 'الرجاء إدخال جميع الحقول المطلوبة');
@@ -105,17 +103,6 @@ export default function AddCustomerScreen() {
                 style={styles.input}
               />
 
-              <TextInput
-                label="العنوان *"
-                value={formData.address}
-                onChangeText={(text) =>
-                  setFormData({ ...formData, address: text })
-                }
-                mode="outlined"
-                multiline
-                numberOfLines={2}
-                style={styles.input}
-              />
             </Card.Content>
           </Card>
 

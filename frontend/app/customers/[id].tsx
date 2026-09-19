@@ -30,7 +30,7 @@ export default function EditCustomerScreen() {
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
-    address: '',
+    address: '', // no longer editable in the UI; kept so saving doesn't wipe existing data
     area: 'المسعودية',
     meter_number: '',
     generator_id: '',
@@ -78,7 +78,6 @@ export default function EditCustomerScreen() {
     if (
       !formData.name ||
       !formData.phone ||
-      !formData.address ||
       !formData.meter_number
     ) {
       showAlert('خطأ', 'الرجاء إدخال جميع الحقول المطلوبة');
@@ -156,18 +155,6 @@ export default function EditCustomerScreen() {
                 testID="edit-phone"
               />
 
-              <TextInput
-                label="العنوان *"
-                value={formData.address}
-                onChangeText={(text) =>
-                  setFormData({ ...formData, address: text })
-                }
-                mode="outlined"
-                multiline
-                numberOfLines={2}
-                style={styles.input}
-                testID="edit-address"
-              />
             </Card.Content>
           </Card>
 

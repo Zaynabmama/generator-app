@@ -123,7 +123,7 @@ class LoginResponse(BaseModel):
 class CustomerCreate(BaseModel):
     name: str
     phone: str
-    address: str
+    address: str = ""
     area: str  # المسعودية، الشرقي، الحيصة، الغربي
     meter_number: str  # رقم العداد
     generator_id: Optional[str] = ""  # المولد (اختياري - المشتركين ياخدو من الكل)
@@ -135,7 +135,7 @@ class Customer(BaseModel):
     id: Optional[str] = None
     name: str
     phone: str
-    address: str
+    address: str = ""
     area: str
     meter_number: str
     generator_id: Optional[str] = ""
