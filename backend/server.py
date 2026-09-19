@@ -251,6 +251,20 @@ async def login(request: LoginRequest):
 async def get_me(current: dict = Depends(get_current_admin)):
     return {"username": current["username"], "role": "admin"}
 
+async def recalculate_customer_balance(customer_id: str, fallback_balance: float = 0.0) -> float:
+    """يعيد حساب current_balance من أحدث فاتورة غير مدفوعة، أو من fallback_balance إذا لم توجد فواتير بعد"""
+    remaining_invoices = await db.invoices.find({
+        "customer_id": customer_id,
+        "status": {"$in": ["unpaid", "partial"]}
+    }).sort('created_at', -1).limit(1).to_list(1)
+
+    new_balance = remaining_invoices[0]['remaining_amount'] if remaining_invoices else fallback_balance
+    await db.customers.update_one(
+        {"_id": ObjectId(customer_id)},
+        {"$set": {"current_balance": new_balance}}
+    )
+    return new_balance
+
 # ==================== Customer APIs ====================
 
 @api_router.post("/customers", response_model=Customer)
@@ -309,15 +323,20 @@ async def get_customer(customer_id: str):
 async def update_customer(customer_id: str, customer: CustomerCreate):
     customer_dict = customer.dict()
     customer_dict['updated_at'] = datetime.utcnow()
-    
+
     result = await db.customers.update_one(
         {"_id": ObjectId(customer_id)},
         {"$set": customer_dict}
     )
-    
+
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="المشترك غير موجود")
-    
+
+    # previous_balance only drives current_balance for a customer with no
+    # invoices yet — once invoices exist, current_balance tracks their real
+    # remaining amount and shouldn't be overwritten by editing this field.
+    await recalculate_customer_balance(customer_id, fallback_balance=customer.previous_balance)
+
     updated = await db.customers.find_one({"_id": ObjectId(customer_id)})
     return Customer(**str_id(updated))
 
@@ -660,20 +679,10 @@ async def delete_invoice(invoice_id: str):
     
     # Delete the invoice
     await db.invoices.delete_one({"_id": ObjectId(invoice_id)})
-    
+
     # Recalculate customer's current_balance from remaining unpaid invoices
-    customer_id = invoice['customer_id']
-    remaining_invoices = await db.invoices.find({
-        "customer_id": customer_id,
-        "status": {"$in": ["unpaid", "partial"]}
-    }).sort('created_at', -1).limit(1).to_list(1)
-    
-    new_balance = remaining_invoices[0]['remaining_amount'] if remaining_invoices else 0.0
-    await db.customers.update_one(
-        {"_id": ObjectId(customer_id)},
-        {"$set": {"current_balance": new_balance}}
-    )
-    
+    await recalculate_customer_balance(invoice['customer_id'])
+
     return {"message": "تم حذف الفاتورة بنجاح"}
 
 # ==================== Expense APIs ====================
