@@ -40,6 +40,23 @@ const shiftMonth = (monthStr: string, delta: number) => {
 
 const formatMonthDisplay = (monthStr: string) => monthStr.split('-').reverse().join('/');
 
+// Once a customer has been billed before, the natural next invoice picks up
+// right after their last one (e.g. last invoice was July -> default to
+// August), regardless of today's date. Falls back to the previous calendar
+// month for a customer with no invoice history yet.
+const getNextInvoiceMonth = async (customerId: string) => {
+  try {
+    const response = await invoicesAPI.getAll({ customer_id: customerId });
+    const lastInvoice = response.data?.[0]; // backend sorts by created_at desc
+    if (lastInvoice) {
+      return shiftMonth(lastInvoice.month, 1);
+    }
+  } catch (error) {
+    console.error('Error fetching customer invoice history:', error);
+  }
+  return getBillingMonth();
+};
+
 export default function CreateInvoiceScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ readingId?: string }>();
@@ -95,6 +112,8 @@ export default function CreateInvoiceScreen() {
       const consumption = reading.current_reading - reading.previous_reading;
       const consumptionCharge = consumption * rate;
       const totalAmount = consumptionCharge + MONTHLY_FEE;
+
+      setInvoiceMonth(await getNextInvoiceMonth(customer.id));
 
       setInvoicePreview({
         customer,
@@ -159,6 +178,8 @@ export default function CreateInvoiceScreen() {
       } catch (error) {
         console.error('Error fetching latest reading:', error);
       }
+
+      setInvoiceMonth(await getNextInvoiceMonth(customerId));
     }
   };
 
