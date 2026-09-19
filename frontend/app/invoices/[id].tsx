@@ -24,6 +24,7 @@ import { invoicesAPI, customersAPI, readingsAPI, generatorsAPI } from '@/src/ser
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { showAlert } from '@/src/utils/alert';
 import { sanitizeDecimal } from '@/src/utils/numeric-input';
+import { BUSINESS_INFO, buildInvoiceWhatsAppWebUrl, formatPhoneForWhatsApp, buildInvoiceMessage } from '@/src/utils/whatsapp-invoice';
 
 export default function InvoiceDetailScreen() {
   const params = useLocalSearchParams<{ id: string; autoWhatsApp?: string }>();
@@ -39,11 +40,6 @@ export default function InvoiceDetailScreen() {
   const [paymentAmount, setPaymentAmount] = useState('');
   const [autoSendTriggered, setAutoSendTriggered] = useState(false);
   const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
-
-  const BUSINESS_INFO = {
-    name: 'أبو عباس للإنارة',
-    phones: '76/942194 - 70/572160',
-  };
 
   useEffect(() => {
     fetchData();
@@ -450,56 +446,13 @@ export default function InvoiceDetailScreen() {
     }
   };
 
-  const formatPhoneForWhatsApp = (phone: string) => {
-    // Remove all non-digits
-    let cleaned = phone.replace(/\D/g, '');
-    // Remove leading 0
-    if (cleaned.startsWith('0')) {
-      cleaned = cleaned.substring(1);
-    }
-    // Add country code if not present (Iraq: 964, Lebanon: 961)
-    // For Lebanon numbers starting with 3,70,71,76,78,79,81
-    if (!cleaned.startsWith('961') && !cleaned.startsWith('964')) {
-      cleaned = '961' + cleaned; // Default to Lebanon
-    }
-    return cleaned;
-  };
-
   const handleWhatsAppSend = async () => {
     if (!customer || !invoice) return;
 
     const phone = formatPhoneForWhatsApp(customer.phone);
-    const consumption = reading.current_reading - reading.previous_reading;
-    const monthName = invoice.month.split('-').reverse().join('/');
-    const totalDue = invoice.total_amount + invoice.previous_balance;
-
-    const message =
-`*${BUSINESS_INFO.name}*
-اشتراك ${customer.area}
-${BUSINESS_INFO.phones}
-
-*إيصال رقم: ${invoice.invoice_number || '00000'}*
-
-اسم المشترك: ${customer.name}
-شهر: ${monthName}
-
-━━━━━━━━━━━━━━━
-العداد السابق: ${reading.previous_reading}
-العداد الحالي: ${reading.current_reading}
-حجم المصروف: ${consumption} kWh
-اشتراك شهري: $${invoice.monthly_fee.toFixed(2)}
-━━━━━━━━━━━━━━━
-
-المبلغ المتوجب: $${invoice.total_amount.toFixed(2)}
-الرصيد السابق: $${invoice.previous_balance.toFixed(2)}
-*المجموع: $${totalDue.toFixed(2)}*
-واصل: $${invoice.amount_paid.toFixed(2)}
-*الباقي: $${invoice.remaining_amount.toFixed(2)}*
-
-تدفع في المحل من 1 لغاية 5 الشهر`;
-
+    const message = buildInvoiceMessage(customer, invoice, reading);
     const encodedMessage = encodeURIComponent(message);
-    const webUrl = `https://wa.me/${phone}?text=${encodedMessage}`;
+    const webUrl = buildInvoiceWhatsAppWebUrl(customer, invoice, reading);
 
     if (Platform.OS === 'web') {
       // Open immediately, synchronously with the click — anything awaited first

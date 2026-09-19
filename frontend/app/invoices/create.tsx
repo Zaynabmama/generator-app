@@ -22,24 +22,7 @@ import { customersAPI, readingsAPI, invoicesAPI } from '@/src/services/api';
 import { showAlert } from '@/src/utils/alert';
 import { sanitizeDecimal } from '@/src/utils/numeric-input';
 import { usePricing } from '@/src/hooks/use-pricing';
-
-// Invoices usually bill for the month just finished — e.g. an invoice
-// created in September covers August's consumption — but this is only a
-// starting point; the user can adjust it (e.g. when entering readings near
-// month-end for the current month instead).
-const getBillingMonth = () => {
-  const now = new Date();
-  const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  return `${previousMonth.getFullYear()}-${String(previousMonth.getMonth() + 1).padStart(2, '0')}`;
-};
-
-const shiftMonth = (monthStr: string, delta: number) => {
-  const [year, month] = monthStr.split('-').map(Number);
-  const shifted = new Date(year, month - 1 + delta, 1);
-  return `${shifted.getFullYear()}-${String(shifted.getMonth() + 1).padStart(2, '0')}`;
-};
-
-const formatMonthDisplay = (monthStr: string) => monthStr.split('-').reverse().join('/');
+import { getBillingMonth, shiftMonth, formatMonthDisplay } from '@/src/utils/billing-month';
 
 // Once a customer has been billed before, the natural next invoice picks up
 // right after their last one (e.g. last invoice was July -> default to

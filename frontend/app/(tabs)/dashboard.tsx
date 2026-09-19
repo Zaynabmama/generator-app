@@ -266,6 +266,15 @@ export default function DashboardScreen() {
 
                 <Button
                   mode="contained"
+                  icon="whatsapp"
+                  onPress={() => router.push('/invoices/bulk-send')}
+                  style={styles.actionButton}
+                >
+                  إرسال جماعي عبر WhatsApp
+                </Button>
+
+                <Button
+                  mode="contained"
                   icon="chart-line"
                   onPress={() => router.push('/(tabs)/reports')}
                   style={styles.actionButton}
