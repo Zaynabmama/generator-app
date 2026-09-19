@@ -86,6 +86,14 @@ export default function BulkReadingsScreen() {
     setInputs((prev) => ({ ...prev, [customerId]: sanitizeDecimal(text) }));
   };
 
+  // A customer with no reading history yet has no "previous reading" on
+  // record — but their meter number is the counter's starting value from
+  // when they were signed up, so use that as the baseline instead of 0.
+  const getPreviousReading = (customer: any) => {
+    if (customer.id in latestByCustomer) return latestByCustomer[customer.id];
+    return parseFloat(customer.meter_number) || 0;
+  };
+
   const handleSaveAll = async () => {
     const filledRows = filteredCustomers
       .map((c) => ({ customer: c, text: inputs[c.id]?.trim() }))
@@ -96,12 +104,11 @@ export default function BulkReadingsScreen() {
       return;
     }
 
-    const previousByCustomer = latestByCustomer;
     const validRows: typeof filledRows = [];
     const invalidRows: typeof filledRows = [];
     filledRows.forEach((row) => {
       const current = parseFloat(row.text!);
-      const previous = previousByCustomer[row.customer.id] || 0;
+      const previous = getPreviousReading(row.customer);
       (isNaN(current) || current < previous ? invalidRows : validRows).push(row);
     });
 
@@ -120,7 +127,7 @@ export default function BulkReadingsScreen() {
       const results = await saveInBatches(validRows, 10, async ({ customer, text }) => {
         await readingsAPI.create({
           customer_id: customer.id,
-          previous_reading: previousByCustomer[customer.id] || 0,
+          previous_reading: getPreviousReading(customer),
           current_reading: parseFloat(text!),
           reading_date: new Date().toISOString(),
           notes: '',
@@ -219,7 +226,7 @@ export default function BulkReadingsScreen() {
             </View>
           ) : (
             filteredCustomers.map((customer) => {
-              const previous = latestByCustomer[customer.id] || 0;
+              const previous = getPreviousReading(customer);
               const currentText = inputs[customer.id] || '';
               const current = parseFloat(currentText);
               const hasValidConsumption = currentText.trim() !== '' && !isNaN(current);

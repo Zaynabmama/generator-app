@@ -171,9 +171,12 @@ export default function CreateInvoiceScreen() {
             previous_reading: response.data.current_reading.toString(),
           }));
         } else {
+          // No reading history yet — the meter number entered when the
+          // customer was added is the counter's starting value, so use it
+          // as the baseline instead of leaving this blank.
           setReadingData((prev) => ({
             ...prev,
-            previous_reading: '',
+            previous_reading: customer.meter_number || '',
           }));
         }
       } catch (error) {
