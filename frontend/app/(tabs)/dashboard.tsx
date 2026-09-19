@@ -248,6 +248,15 @@ export default function DashboardScreen() {
 
                 <Button
                   mode="contained"
+                  icon="table-edit"
+                  onPress={() => router.push('/invoices/bulk-readings')}
+                  style={styles.actionButton}
+                >
+                  إدخال قراءات جماعي
+                </Button>
+
+                <Button
+                  mode="contained"
                   icon="clipboard-clock-outline"
                   onPress={() => router.push('/invoices/pending-readings')}
                   style={styles.actionButton}
