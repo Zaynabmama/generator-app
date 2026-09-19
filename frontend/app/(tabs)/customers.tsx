@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   StyleSheet,
-  FlatList,
+  ScrollView,
+  RefreshControl,
   TouchableOpacity,
 } from 'react-native';
 import {
@@ -235,22 +236,27 @@ export default function CustomersScreen() {
         ))}
       </View>
 
-      <FlatList
-        data={filteredCustomers}
-        renderItem={renderCustomer}
-        keyExtractor={(item) => item.id}
+      <ScrollView
         contentContainerStyle={styles.listContent}
-        refreshing={loading}
-        onRefresh={fetchData}
         keyboardShouldPersistTaps="handled"
-        ListEmptyComponent={
+        refreshControl={
+          <RefreshControl refreshing={loading} onRefresh={fetchData} />
+        }
+      >
+        {filteredCustomers.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>
               {customers.length === 0 ? 'لا توجد بيانات' : 'لا توجد نتائج مطابقة'}
             </Text>
           </View>
-        }
-      />
+        ) : (
+          filteredCustomers.map((item) => (
+            <React.Fragment key={item.id}>
+              {renderCustomer({ item })}
+            </React.Fragment>
+          ))
+        )}
+      </ScrollView>
 
       <FAB
         icon="plus"
