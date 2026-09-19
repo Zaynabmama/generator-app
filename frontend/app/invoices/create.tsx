@@ -22,13 +22,23 @@ import { customersAPI, readingsAPI, invoicesAPI } from '@/src/services/api';
 import { showAlert } from '@/src/utils/alert';
 import { usePricing } from '@/src/hooks/use-pricing';
 
-// Invoices bill for the month just finished — e.g. an invoice created in
-// September covers August's consumption.
+// Invoices usually bill for the month just finished — e.g. an invoice
+// created in September covers August's consumption — but this is only a
+// starting point; the user can adjust it (e.g. when entering readings near
+// month-end for the current month instead).
 const getBillingMonth = () => {
   const now = new Date();
   const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   return `${previousMonth.getFullYear()}-${String(previousMonth.getMonth() + 1).padStart(2, '0')}`;
 };
+
+const shiftMonth = (monthStr: string, delta: number) => {
+  const [year, month] = monthStr.split('-').map(Number);
+  const shifted = new Date(year, month - 1 + delta, 1);
+  return `${shifted.getFullYear()}-${String(shifted.getMonth() + 1).padStart(2, '0')}`;
+};
+
+const formatMonthDisplay = (monthStr: string) => monthStr.split('-').reverse().join('/');
 
 export default function CreateInvoiceScreen() {
   const router = useRouter();
@@ -50,6 +60,7 @@ export default function CreateInvoiceScreen() {
   });
 
   const [invoicePreview, setInvoicePreview] = useState<any>(null);
+  const [invoiceMonth, setInvoiceMonth] = useState(getBillingMonth());
 
   // Pricing — configurable from the settings screen
   const { kwhRate: CONSUMPTION_RATE, monthlyFee: MONTHLY_FEE } = usePricing();
@@ -84,7 +95,6 @@ export default function CreateInvoiceScreen() {
       const consumption = reading.current_reading - reading.previous_reading;
       const consumptionCharge = consumption * rate;
       const totalAmount = consumptionCharge + MONTHLY_FEE;
-      const month = getBillingMonth();
 
       setInvoicePreview({
         customer,
@@ -94,7 +104,6 @@ export default function CreateInvoiceScreen() {
         monthlyFee: MONTHLY_FEE,
         totalAmount,
         previousBalance: customer.current_balance || 0,
-        month,
       });
 
       setStep(3);
@@ -174,8 +183,6 @@ export default function CreateInvoiceScreen() {
     const consumptionCharge = consumption * rate;
     const totalAmount = consumptionCharge + MONTHLY_FEE;
 
-    const month = getBillingMonth();
-
     setInvoicePreview({
       customer: selectedCustomer,
       consumption,
@@ -184,7 +191,6 @@ export default function CreateInvoiceScreen() {
       monthlyFee: MONTHLY_FEE,
       totalAmount,
       previousBalance: selectedCustomer.current_balance || 0,
-      month,
     });
 
     setStep(3);
@@ -213,7 +219,7 @@ export default function CreateInvoiceScreen() {
       const invoiceResponse = await invoicesAPI.create({
         customer_id: selectedCustomer.id,
         reading_id: readingId,
-        month: invoicePreview.month,
+        month: invoiceMonth,
         consumption_charge: invoicePreview.consumptionCharge,
         monthly_fee: invoicePreview.monthlyFee,
         total_amount: invoicePreview.totalAmount,
@@ -466,7 +472,25 @@ export default function CreateInvoiceScreen() {
           <Text style={styles.previewValue}>{invoicePreview?.customer.name}</Text>
 
           <Text style={styles.previewTitle}>الشهر:</Text>
-          <Text style={styles.previewValue}>{invoicePreview?.month}</Text>
+          <View style={styles.monthSelectorRow}>
+            <Button
+              mode="outlined"
+              onPress={() => setInvoiceMonth((m) => shiftMonth(m, -1))}
+              compact
+              style={styles.monthStepButton}
+            >
+              الشهر السابق
+            </Button>
+            <Text style={styles.monthValue}>{formatMonthDisplay(invoiceMonth)}</Text>
+            <Button
+              mode="outlined"
+              onPress={() => setInvoiceMonth((m) => shiftMonth(m, 1))}
+              compact
+              style={styles.monthStepButton}
+            >
+              الشهر التالي
+            </Button>
+          </View>
 
           <View style={styles.divider} />
 
@@ -741,6 +765,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#fff',
     marginBottom: 8,
+  },
+  monthSelectorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 8,
+  },
+  monthStepButton: {
+    flex: 1,
+  },
+  monthValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
   },
   totalAmount: {
     fontSize: 20,
