@@ -220,6 +220,13 @@ export default function InvoiceDetailScreen() {
             align-items: center;
             overflow-wrap: anywhere;
           }
+          .receipt-date {
+            flex: 1 0 90px;
+            justify-content: center;
+            direction: ltr;
+            white-space: nowrap;
+            unicode-bidi: isolate;
+          }
           .left-row {
             padding: 8px;
             border-bottom: 2px solid #000;
@@ -245,12 +252,12 @@ export default function InvoiceDetailScreen() {
             font-size: 15px;
             font-weight: bold;
             line-height: 1.7;
-            color: #fff;
-            background: #087f8c;
+            color: #064b50;
+            background: #e6f4f1;
           }
           .wish-payment {
             display: block;
-            color: #fff2a8;
+            color: #9f2d20;
             font-size: 16px;
           }
           .wish-payment span {
@@ -314,7 +321,7 @@ export default function InvoiceDetailScreen() {
                 <div class="cell-label">واصل:</div>
                 <div class="cell-value">$${invoice.amount_paid.toFixed(2)}</div>
                 <div class="cell-label" style="border-right: 2px solid #000;">في:</div>
-                <div class="cell-value">${formattedReceiptDate}</div>
+                <div class="cell-value receipt-date">${formattedReceiptDate}</div>
               </div>
               <div class="row">
                 <div class="cell-label">باقي:</div>
