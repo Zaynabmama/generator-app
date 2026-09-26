@@ -220,11 +220,16 @@ export default function InvoiceDetailScreen() {
             align-items: center;
             overflow-wrap: anywhere;
           }
-          .receipt-date {
-            flex: 1 0 90px;
+          .payment-row {
+            display: grid;
+            grid-template-columns: minmax(74px, 1fr) minmax(80px, auto) minmax(38px, auto) minmax(90px, auto);
+          }
+          .payment-row .cell-value {
             justify-content: center;
-            direction: ltr;
             white-space: nowrap;
+          }
+          .receipt-date {
+            direction: ltr;
             unicode-bidi: isolate;
           }
           .left-row {
@@ -317,7 +322,7 @@ export default function InvoiceDetailScreen() {
                 <div class="cell-label">المجموع:</div>
                 <div class="cell-value">$${totalDue.toFixed(2)}</div>
               </div>
-              <div class="row">
+              <div class="row payment-row">
                 <div class="cell-label">واصل:</div>
                 <div class="cell-value">$${invoice.amount_paid.toFixed(2)}</div>
                 <div class="cell-label" style="border-right: 2px solid #000;">في:</div>
