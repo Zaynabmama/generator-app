@@ -92,6 +92,13 @@ export default function InvoiceDetailScreen() {
     const consumption = reading.current_reading - reading.previous_reading;
     const monthName = invoice.month.split('-').reverse().join('/');
     const totalDue = invoice.total_amount + invoice.previous_balance;
+    const lastPayment = payments.length ? payments[payments.length - 1] : null;
+    const receiptDate = lastPayment?.payment_date || invoice.created_at;
+    const formattedReceiptDate = receiptDate
+      ? new Date(receiptDate).toLocaleDateString('en-GB')
+      : '';
+    const previousReading = Number(reading.previous_reading).toString();
+    const currentReading = Number(reading.current_reading).toString();
 
     return `
       <!DOCTYPE html>
@@ -145,7 +152,13 @@ export default function InvoiceDetailScreen() {
             margin-bottom: 4px;
           }
           .phones {
-            font-size: 12px;
+            font-size: 11px;
+            line-height: 1.5;
+          }
+          .phones span {
+            direction: ltr;
+            display: inline-block;
+            unicode-bidi: isolate;
           }
           .invoice-num-title {
             font-size: 20px;
@@ -243,7 +256,10 @@ export default function InvoiceDetailScreen() {
             <div class="header-right">
               <div class="business-name">${BUSINESS_INFO.name}</div>
               <div class="area-name">اشتراك ${customer.area}</div>
-              <div class="phones">${BUSINESS_INFO.phones}</div>
+              <div class="phones">
+                <div>محمد: <span>76/942194 - 76/086384</span></div>
+                <div>محمود: <span>70/572160</span></div>
+              </div>
             </div>
             <div class="header-center">
               <div class="receipt-label">إيصال</div>
@@ -251,7 +267,7 @@ export default function InvoiceDetailScreen() {
             </div>
             <div class="header-left">
               <div class="left-label">العداد الحالي</div>
-              <div class="left-value">${reading.current_reading}</div>
+              <div class="left-value">${currentReading}</div>
             </div>
           </div>
 
@@ -276,7 +292,7 @@ export default function InvoiceDetailScreen() {
                 <div class="cell-label">واصل:</div>
                 <div class="cell-value">$${invoice.amount_paid.toFixed(2)}</div>
                 <div class="cell-label" style="border-right: 2px solid #000;">في:</div>
-                <div class="cell-value">${new Date().toLocaleDateString('en-GB')}</div>
+                <div class="cell-value">${formattedReceiptDate}</div>
               </div>
               <div class="row">
                 <div class="cell-label">باقي:</div>
@@ -291,7 +307,7 @@ export default function InvoiceDetailScreen() {
             <div class="left-col">
               <div class="left-row">
                 <div class="left-label">العداد السابق</div>
-                <div class="left-value">${reading.previous_reading}</div>
+                <div class="left-value">${previousReading}</div>
               </div>
               <div class="left-row">
                 <div class="left-label">حجم المصروف</div>
@@ -305,7 +321,8 @@ export default function InvoiceDetailScreen() {
           </div>
 
           <div class="footer">
-            تدفع في المحل من 1 لغاية 5 الشهر بفصل الاشتراك بعد هذا التاريخ
+            تدفع في المحل من 1 لغاية 5 الشهر بفصل الاشتراك بعد هذا التاريخ<br>
+            أو الدفع عبر ويش Wish money على الرقم ٧٦٩٤٢١٩٤
           </div>
         </div>
       </body>
