@@ -355,7 +355,7 @@ export default function InvoiceDetailScreen() {
           </div>
 
           <div class="footer">
-            تدفع في المحل من 1 لغاية 5 الشهر بفصل الاشتراك بعد هذا التاريخ<br>
+            تدفع في المحل من 1 لغاية 5 الشهر يفصل الاشتراك بعد هذا التاريخ<br>
             <span class="wish-payment">أو الدفع عبر ويش Wish money على الرقم <span>76942194</span></span>
           </div>
         </div>
