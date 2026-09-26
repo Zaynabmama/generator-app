@@ -106,6 +106,9 @@ export default function InvoiceDetailScreen() {
       <head>
         <meta charset="utf-8">
         <style>
+          * {
+            box-sizing: border-box;
+          }
           @page { size: A5; margin: 10mm; }
           body {
             font-family: 'Arial', 'Tahoma', sans-serif;
@@ -179,13 +182,15 @@ export default function InvoiceDetailScreen() {
           }
           .content {
             display: flex;
+            width: 100%;
           }
           .left-col {
-            width: 30%;
+            flex: 0 0 30%;
             border-left: 2px solid #000;
           }
           .right-col {
-            width: 70%;
+            flex: 1;
+            min-width: 0;
           }
           .row {
             display: flex;
@@ -196,20 +201,24 @@ export default function InvoiceDetailScreen() {
             border-bottom: none;
           }
           .cell-label {
+            flex: 0 1 30%;
             padding: 8px;
             font-weight: bold;
             font-size: 14px;
             border-left: 2px solid #000;
-            min-width: 100px;
+            min-width: 0;
             display: flex;
             align-items: center;
+            overflow-wrap: anywhere;
           }
           .cell-value {
+            min-width: 0;
             padding: 8px;
             font-size: 14px;
             flex: 1;
             display: flex;
             align-items: center;
+            overflow-wrap: anywhere;
           }
           .left-row {
             padding: 8px;
@@ -230,10 +239,24 @@ export default function InvoiceDetailScreen() {
             margin-top: 4px;
           }
           .footer {
-            padding: 8px;
-            border-top: 2px solid #000;
+            padding: 12px 8px;
+            border-top: 3px solid #087f8c;
             text-align: center;
-            font-size: 12px;
+            font-size: 15px;
+            font-weight: bold;
+            line-height: 1.7;
+            color: #fff;
+            background: #087f8c;
+          }
+          .wish-payment {
+            display: block;
+            color: #fff2a8;
+            font-size: 16px;
+          }
+          .wish-payment span {
+            direction: ltr;
+            display: inline-block;
+            unicode-bidi: isolate;
           }
           .split-row {
             display: flex;
@@ -255,7 +278,6 @@ export default function InvoiceDetailScreen() {
           <div class="header">
             <div class="header-right">
               <div class="business-name">${BUSINESS_INFO.name}</div>
-              <div class="area-name">اشتراك ${customer.area}</div>
               <div class="phones">
                 <div>محمد: <span>76/942194 - 76/086384</span></div>
                 <div>محمود: <span>70/572160</span></div>
@@ -322,7 +344,7 @@ export default function InvoiceDetailScreen() {
 
           <div class="footer">
             تدفع في المحل من 1 لغاية 5 الشهر بفصل الاشتراك بعد هذا التاريخ<br>
-            أو الدفع عبر ويش Wish money على الرقم ٧٦٩٤٢١٩٤
+            <span class="wish-payment">أو الدفع عبر ويش Wish money على الرقم <span>76942194</span></span>
           </div>
         </div>
       </body>
