@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { View, StyleSheet, FlatList } from 'react-native';
-import { Card, Text, Button } from 'react-native-paper';
+import { View, StyleSheet, ScrollView } from 'react-native';
+import { Card, Text, Button, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { readingsAPI } from '@/src/services/api';
@@ -51,10 +51,10 @@ export default function PendingReadingsScreen() {
     );
   };
 
-  const renderReading = ({ item }: any) => {
+  const renderReading = (item: any) => {
     const consumption = item.current_reading - item.previous_reading;
     return (
-      <Card style={styles.card}>
+      <Card key={item.id} style={styles.card}>
         <Card.Content>
           <View style={styles.cardHeader}>
             <Text style={styles.customerName}>{item.customer_name}</Text>
@@ -123,19 +123,23 @@ export default function PendingReadingsScreen() {
         <View style={{ width: 60 }} />
       </View>
 
-      <FlatList
-        data={readings}
-        renderItem={renderReading}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        refreshing={loading}
-        onRefresh={fetchData}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>لا توجد قراءات بانتظار إصدار فاتورة</Text>
-          </View>
-        }
-      />
+      {/* Plain ScrollView rather than FlatList: FlatList's windowing on
+          react-native-web makes a few hundred rows slow and flickery. */}
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#4CAF50" />
+        </View>
+      ) : (
+        <ScrollView contentContainerStyle={styles.listContent}>
+          {readings.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>لا توجد قراءات بانتظار إصدار فاتورة</Text>
+            </View>
+          ) : (
+            readings.map(renderReading)
+          )}
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
@@ -156,6 +160,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   listContent: {
     padding: 16,

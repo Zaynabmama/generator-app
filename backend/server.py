@@ -519,9 +519,18 @@ async def get_pending_readings():
         {"_id": {"$nin": invoiced_object_ids}}
     ).sort('reading_date', -1).to_list(1000)
 
+    # One query for every customer instead of one per reading — after a bulk
+    # entry there can be hundreds of pending readings.
+    customer_ids = {r['customer_id'] for r in readings if ObjectId.is_valid(r['customer_id'])}
+    customers = await db.customers.find(
+        {"_id": {"$in": [ObjectId(cid) for cid in customer_ids]}},
+        {"name": 1, "area": 1},
+    ).to_list(None)
+    customers_by_id = {str(c['_id']): c for c in customers}
+
     result = []
     for r in readings:
-        customer = await db.customers.find_one({"_id": ObjectId(r['customer_id'])})
+        customer = customers_by_id.get(r['customer_id'])
         result.append({
             **str_id(r),
             "customer_name": customer['name'] if customer else 'غير معروف',
