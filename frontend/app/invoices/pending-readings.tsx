@@ -1,6 +1,6 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
-import { Card, Text, Button, ActivityIndicator } from 'react-native-paper';
+import { Card, Text, Button, ActivityIndicator, Searchbar } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { readingsAPI } from '@/src/services/api';
@@ -10,6 +10,19 @@ export default function PendingReadingsScreen() {
   const router = useRouter();
   const [readings, setReadings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredReadings = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return readings;
+    return readings.filter(
+      (r) =>
+        r.customer_name?.toLowerCase().includes(query) ||
+        r.customer_area?.toLowerCase().includes(query) ||
+        String(r.customer_phone ?? '').toLowerCase().includes(query) ||
+        String(r.customer_meter_number ?? '').toLowerCase().includes(query)
+    );
+  }, [readings, searchQuery]);
 
   const fetchData = async () => {
     try {
@@ -123,6 +136,15 @@ export default function PendingReadingsScreen() {
         <View style={{ width: 60 }} />
       </View>
 
+      <View style={styles.searchContainer}>
+        <Searchbar
+          placeholder="البحث بالاسم أو رقم الهاتف أو العداد أو المنطقة"
+          onChangeText={setSearchQuery}
+          value={searchQuery}
+          style={styles.searchbar}
+        />
+      </View>
+
       {/* Plain ScrollView rather than FlatList: FlatList's windowing on
           react-native-web makes a few hundred rows slow and flickery. */}
       {loading ? (
@@ -130,13 +152,15 @@ export default function PendingReadingsScreen() {
           <ActivityIndicator size="large" color="#4CAF50" />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.listContent}>
-          {readings.length === 0 ? (
+        <ScrollView contentContainerStyle={styles.listContent} keyboardShouldPersistTaps="handled">
+          {filteredReadings.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>لا توجد قراءات بانتظار إصدار فاتورة</Text>
+              <Text style={styles.emptyText}>
+                {readings.length === 0 ? 'لا توجد قراءات بانتظار إصدار فاتورة' : 'لا توجد نتائج'}
+              </Text>
             </View>
           ) : (
-            readings.map(renderReading)
+            filteredReadings.map(renderReading)
           )}
         </ScrollView>
       )}
@@ -160,6 +184,13 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  searchContainer: {
+    padding: 16,
+    backgroundColor: '#1E1E1E',
+  },
+  searchbar: {
+    backgroundColor: '#2A2A2A',
   },
   loadingContainer: {
     flex: 1,

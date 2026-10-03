@@ -524,7 +524,7 @@ async def get_pending_readings():
     customer_ids = {r['customer_id'] for r in readings if ObjectId.is_valid(r['customer_id'])}
     customers = await db.customers.find(
         {"_id": {"$in": [ObjectId(cid) for cid in customer_ids]}},
-        {"name": 1, "area": 1},
+        {"name": 1, "area": 1, "phone": 1, "meter_number": 1},
     ).to_list(None)
     customers_by_id = {str(c['_id']): c for c in customers}
 
@@ -535,6 +535,8 @@ async def get_pending_readings():
             **str_id(r),
             "customer_name": customer['name'] if customer else 'غير معروف',
             "customer_area": customer['area'] if customer else '',
+            "customer_phone": customer.get('phone', '') if customer else '',
+            "customer_meter_number": customer.get('meter_number', '') if customer else '',
         })
     return result
 
