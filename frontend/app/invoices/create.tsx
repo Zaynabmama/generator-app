@@ -76,6 +76,17 @@ export default function CreateInvoiceScreen() {
     }
   }, [params.readingId]);
 
+  // Fills the form from a reading that was saved earlier but never invoiced,
+  // so the invoice bills that reading instead of creating a new one.
+  const applyPendingReading = (reading: any) => {
+    setExistingReadingId(reading.id);
+    setReadingData({
+      previous_reading: String(reading.previous_reading),
+      current_reading: String(reading.current_reading),
+      notes: reading.notes || '',
+    });
+  };
+
   const loadFromExistingReading = async (readingId: string) => {
     try {
       const readingRes = await readingsAPI.getOne(readingId);
@@ -83,13 +94,8 @@ export default function CreateInvoiceScreen() {
       const customerRes = await customersAPI.getOne(reading.customer_id);
       const customer = customerRes.data;
 
-      setExistingReadingId(readingId);
       setSelectedCustomer(customer);
-      setReadingData({
-        previous_reading: String(reading.previous_reading),
-        current_reading: String(reading.current_reading),
-        notes: reading.notes || '',
-      });
+      applyPendingReading(reading);
 
       const rate =
         customer.kwh_rate && customer.kwh_rate > 0 ? customer.kwh_rate : CONSUMPTION_RATE;
@@ -143,12 +149,18 @@ export default function CreateInvoiceScreen() {
     const customer = customers.find((c) => c.id === customerId);
     setSelectedCustomer(customer);
     setCustomerSearch('');
+    setExistingReadingId(null);
+    setReadingData({ previous_reading: '', current_reading: '', notes: '' });
 
     // Fetch latest reading to auto-populate previous_reading
     if (customerId && customer) {
       try {
         const response = await readingsAPI.getLatest(customerId);
-        if (response.data.has_reading) {
+        if (response.data.has_reading && response.data.is_invoiced === false) {
+          // Already entered (e.g. via bulk readings) but not billed yet —
+          // bill it now rather than asking for yet another reading.
+          applyPendingReading(response.data);
+        } else if (response.data.has_reading) {
           setReadingData((prev) => ({
             ...prev,
             previous_reading: response.data.current_reading.toString(),
@@ -376,12 +388,20 @@ export default function CreateInvoiceScreen() {
       <Card.Content>
         <Text style={styles.sectionTitle}>قراءة العداد</Text>
 
-        {readingData.previous_reading && (
+        {existingReadingId ? (
           <View style={styles.infoBanner}>
             <Text style={styles.infoBannerText}>
-              ✓ تم تحميل القراءة السابقة تلقائياً من آخر فاتورة
+              ✓ تم استخدام القراءة المعلقة المُدخلة سابقاً لهذا المشترك
             </Text>
           </View>
+        ) : (
+          readingData.previous_reading && (
+            <View style={styles.infoBanner}>
+              <Text style={styles.infoBannerText}>
+                ✓ تم تحميل القراءة السابقة تلقائياً من آخر فاتورة
+              </Text>
+            </View>
+          )
         )}
 
         <TextInput
@@ -392,6 +412,7 @@ export default function CreateInvoiceScreen() {
           }
           mode="outlined"
           keyboardType="numeric"
+          disabled={!!existingReadingId}
           style={styles.input}
           right={
             readingData.previous_reading ? (
@@ -408,6 +429,7 @@ export default function CreateInvoiceScreen() {
           }
           mode="outlined"
           keyboardType="numeric"
+          disabled={!!existingReadingId}
           style={styles.input}
         />
 
@@ -433,6 +455,7 @@ export default function CreateInvoiceScreen() {
           mode="outlined"
           multiline
           numberOfLines={3}
+          disabled={!!existingReadingId}
           style={styles.input}
         />
 

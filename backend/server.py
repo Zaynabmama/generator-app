@@ -492,11 +492,21 @@ async def get_latest_reading(customer_id: str):
     )
     if not reading:
         return {"has_reading": False, "current_reading": 0}
-    
+
+    # A reading saved without an invoice (bulk entry / "save reading only") is
+    # still waiting to be billed — the client should invoice it rather than
+    # treat it as the baseline for a new reading.
+    reading_id = str(reading['_id'])
+    is_invoiced = await db.invoices.find_one({"reading_id": reading_id}) is not None
+
     return {
         "has_reading": True,
+        "id": reading_id,
+        "is_invoiced": is_invoiced,
+        "previous_reading": reading.get('previous_reading', 0),
         "current_reading": reading.get('current_reading', 0),
-        "reading_date": reading.get('reading_date')
+        "reading_date": reading.get('reading_date'),
+        "notes": reading.get('notes', ''),
     }
 
 @api_router.get("/readings/pending")
@@ -558,6 +568,21 @@ async def get_reading(reading_id: str):
     if not reading:
         raise HTTPException(status_code=404, detail="القراءة غير موجودة")
     return MeterReading(**str_id(reading))
+
+@api_router.delete("/readings/{reading_id}")
+async def delete_reading(reading_id: str):
+    """حذف قراءة معلقة (لم تصدر لها فاتورة)"""
+    reading = await db.readings.find_one({"_id": ObjectId(reading_id)})
+    if not reading:
+        raise HTTPException(status_code=404, detail="القراءة غير موجودة")
+
+    # An invoiced reading is the basis of that invoice's charges — removing it
+    # would leave the invoice pointing at nothing.
+    if await db.invoices.find_one({"reading_id": reading_id}):
+        raise HTTPException(status_code=400, detail="لا يمكن حذف قراءة مرتبطة بفاتورة. احذف الفاتورة أولاً")
+
+    await db.readings.delete_one({"_id": ObjectId(reading_id)})
+    return {"message": "تم حذف القراءة بنجاح"}
 
 # ==================== Invoice APIs ====================
 

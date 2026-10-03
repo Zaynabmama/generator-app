@@ -29,6 +29,28 @@ export default function PendingReadingsScreen() {
     }, [])
   );
 
+  const handleDelete = (item: any) => {
+    showAlert(
+      'حذف القراءة',
+      `هل تريد حذف قراءة ${item.customer_name} (من ${item.previous_reading} إلى ${item.current_reading})؟`,
+      [
+        { text: 'إلغاء', style: 'cancel' },
+        {
+          text: 'حذف',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await readingsAPI.delete(item.id);
+              setReadings((prev) => prev.filter((r) => r.id !== item.id));
+            } catch (error: any) {
+              showAlert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء حذف القراءة');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const renderReading = ({ item }: any) => {
     const consumption = item.current_reading - item.previous_reading;
     return (
@@ -71,6 +93,15 @@ export default function PendingReadingsScreen() {
             icon="receipt-text"
           >
             إنشاء فاتورة
+          </Button>
+          <Button
+            mode="outlined"
+            onPress={() => handleDelete(item)}
+            style={styles.deleteButton}
+            textColor="#F44336"
+            icon="delete-outline"
+          >
+            حذف القراءة
           </Button>
         </Card.Content>
       </Card>
@@ -173,6 +204,10 @@ const styles = StyleSheet.create({
   createButton: {
     marginTop: 12,
     backgroundColor: '#4CAF50',
+  },
+  deleteButton: {
+    marginTop: 8,
+    borderColor: '#F44336',
   },
   emptyContainer: {
     padding: 32,
