@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { readingsAPI } from '@/src/services/api';
 import { showAlert } from '@/src/utils/alert';
+import { isHighConsumption, HIGH_CONSUMPTION_WARNING } from '@/src/utils/consumption';
 
 export default function PendingReadingsScreen() {
   const router = useRouter();
@@ -66,8 +67,9 @@ export default function PendingReadingsScreen() {
 
   const renderReading = (item: any) => {
     const consumption = item.current_reading - item.previous_reading;
+    const isHigh = isHighConsumption(consumption);
     return (
-      <Card key={item.id} style={styles.card}>
+      <Card key={item.id} style={[styles.card, isHigh && styles.cardHigh]}>
         <Card.Content>
           <View style={styles.cardHeader}>
             <Text style={styles.customerName}>{item.customer_name}</Text>
@@ -86,10 +88,11 @@ export default function PendingReadingsScreen() {
           </View>
           <View style={styles.row}>
             <Text style={styles.label}>الاستهلاك:</Text>
-            <Text style={[styles.value, styles.consumption]}>
+            <Text style={[styles.value, styles.consumption, isHigh && styles.highText]}>
               {consumption.toLocaleString()} kWh
             </Text>
           </View>
+          {isHigh && <Text style={styles.highWarning}>{HIGH_CONSUMPTION_WARNING}</Text>}
           {item.reading_date && (
             <View style={styles.row}>
               <Text style={styles.label}>تاريخ القراءة:</Text>
@@ -240,6 +243,18 @@ const styles = StyleSheet.create({
   consumption: {
     color: '#4CAF50',
     fontWeight: 'bold',
+  },
+  cardHigh: {
+    borderWidth: 1,
+    borderColor: '#F44336',
+  },
+  highText: {
+    color: '#F44336',
+  },
+  highWarning: {
+    fontSize: 13,
+    color: '#F44336',
+    marginBottom: 8,
   },
   createButton: {
     marginTop: 12,

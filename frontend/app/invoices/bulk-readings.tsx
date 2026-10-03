@@ -6,6 +6,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { customersAPI, readingsAPI } from '@/src/services/api';
 import { showAlert } from '@/src/utils/alert';
 import { sanitizeDecimal } from '@/src/utils/numeric-input';
+import { isHighConsumption, HIGH_CONSUMPTION_WARNING } from '@/src/utils/consumption';
 
 const AREAS = ['المسعودية', 'الشرقي', 'الحيصة', 'الغربي'];
 
@@ -231,9 +232,10 @@ export default function BulkReadingsScreen() {
               const current = parseFloat(currentText);
               const hasValidConsumption = currentText.trim() !== '' && !isNaN(current);
               const consumption = hasValidConsumption ? current - previous : null;
+              const isHigh = isHighConsumption(consumption);
 
               return (
-                <View key={customer.id} style={styles.row}>
+                <View key={customer.id} style={[styles.row, isHigh && styles.rowHigh]}>
                   <View style={styles.rowInfo}>
                     <Text style={styles.customerName}>{customer.name}</Text>
                     <Text style={styles.customerDetail}>
@@ -255,12 +257,13 @@ export default function BulkReadingsScreen() {
                       <Text
                         style={[
                           styles.consumptionText,
-                          consumption < 0 && styles.consumptionInvalid,
+                          (consumption < 0 || isHigh) && styles.consumptionInvalid,
                         ]}
                       >
                         {consumption.toLocaleString()} kWh
                       </Text>
                     )}
+                    {isHigh && <Text style={styles.highWarning}>{HIGH_CONSUMPTION_WARNING}</Text>}
                   </View>
                 </View>
               );
@@ -370,6 +373,15 @@ const styles = StyleSheet.create({
   },
   consumptionInvalid: {
     color: '#F44336',
+  },
+  rowHigh: {
+    borderWidth: 1,
+    borderColor: '#F44336',
+  },
+  highWarning: {
+    fontSize: 11,
+    color: '#F44336',
+    marginTop: 2,
   },
   emptyContainer: {
     padding: 32,

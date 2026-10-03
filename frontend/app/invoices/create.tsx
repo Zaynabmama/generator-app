@@ -21,6 +21,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { customersAPI, readingsAPI, invoicesAPI } from '@/src/services/api';
 import { showAlert } from '@/src/utils/alert';
 import { sanitizeDecimal } from '@/src/utils/numeric-input';
+import { isHighConsumption, HIGH_CONSUMPTION_WARNING } from '@/src/utils/consumption';
 import { usePricing } from '@/src/hooks/use-pricing';
 import { getBillingMonth, shiftMonth, formatMonthDisplay } from '@/src/utils/billing-month';
 
@@ -383,6 +384,10 @@ export default function CreateInvoiceScreen() {
     </Card>
   );
 
+  const step2Consumption =
+    parseFloat(readingData.current_reading) - parseFloat(readingData.previous_reading);
+  const isStep2High = isHighConsumption(step2Consumption);
+
   const renderStep2 = () => (
     <Card style={styles.card}>
       <Card.Content>
@@ -434,15 +439,12 @@ export default function CreateInvoiceScreen() {
         />
 
         {readingData.previous_reading && readingData.current_reading && (
-          <View style={styles.consumptionBox}>
+          <View style={[styles.consumptionBox, isStep2High && styles.consumptionBoxHigh]}>
             <Text style={styles.consumptionLabel}>الاستهلاك:</Text>
-            <Text style={styles.consumptionValue}>
-              {(
-                parseFloat(readingData.current_reading) -
-                parseFloat(readingData.previous_reading)
-              ).toLocaleString()}{' '}
-              kWh
+            <Text style={[styles.consumptionValue, isStep2High && styles.highText]}>
+              {step2Consumption.toLocaleString()} kWh
             </Text>
+            {isStep2High && <Text style={styles.highWarning}>{HIGH_CONSUMPTION_WARNING}</Text>}
           </View>
         )}
 
@@ -526,10 +528,18 @@ export default function CreateInvoiceScreen() {
           <View style={styles.divider} />
 
           <Text style={styles.previewTitle}>رسم الاستهلاك:</Text>
-          <Text style={styles.previewValue}>
+          <Text
+            style={[
+              styles.previewValue,
+              isHighConsumption(invoicePreview?.consumption) && styles.highText,
+            ]}
+          >
             {invoicePreview?.consumption.toLocaleString()} kWh × ${invoicePreview?.kwhRate.toFixed(2)} ={' '}
             ${invoicePreview?.consumptionCharge.toFixed(2)}
           </Text>
+          {isHighConsumption(invoicePreview?.consumption) && (
+            <Text style={styles.highWarning}>{HIGH_CONSUMPTION_WARNING}</Text>
+          )}
 
           <Text style={styles.previewTitle}>رسم الاشتراك الشهري:</Text>
           <Text style={styles.previewValue}>
@@ -780,6 +790,19 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#4CAF50',
     marginTop: 4,
+  },
+  consumptionBoxHigh: {
+    borderWidth: 1,
+    borderColor: '#F44336',
+  },
+  highText: {
+    color: '#F44336',
+  },
+  highWarning: {
+    fontSize: 13,
+    color: '#F44336',
+    marginTop: 4,
+    marginBottom: 8,
   },
   previewBox: {
     padding: 16,
