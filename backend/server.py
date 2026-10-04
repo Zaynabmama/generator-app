@@ -3,6 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import UpdateOne
 import os
 import re
 import logging
@@ -131,6 +132,9 @@ class CustomerCreate(BaseModel):
     kwh_rate: Optional[float] = None  # سعر مخصص لهذا المشترك (فارغ = يستخدم السعر العام)
     notes: str = ""
 
+class CustomerPosition(BaseModel):
+    position: int  # الترتيب الجديد داخل المنطقة، يبدأ من 1
+
 class Customer(BaseModel):
     id: Optional[str] = None
     name: str
@@ -145,6 +149,7 @@ class Customer(BaseModel):
     suspended_at: Optional[datetime] = None
     kwh_rate: Optional[float] = None
     notes: str = ""
+    sort_order: Optional[int] = None  # الترتيب داخل المنطقة
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -279,9 +284,54 @@ async def recalculate_customer_balance(customer_id: str, fallback_balance: float
 
 # ==================== Customer APIs ====================
 
+# Customers are listed area by area in this order, then by sort_order — the
+# owner's chosen position within the area. Any other area goes last.
+#
+# An area nobody has rearranged yet has no sort_order at all; it keeps the
+# database's natural order (the order customers were added), since the sort
+# is stable. The first time a customer is moved within or into an area, the
+# whole area gets numbered (see place_in_area).
+AREA_ORDER = ['الحيصة', 'المسعودية', 'الشرقي', 'الغربي']
+
+def customer_sort_key(c: dict):
+    area = c.get('area', '')
+    area_rank = AREA_ORDER.index(area) if area in AREA_ORDER else len(AREA_ORDER)
+    sort_order = c.get('sort_order')
+    return (area_rank, area, sort_order if sort_order is not None else float('inf'))
+
+async def next_sort_order(area: str) -> Optional[int]:
+    """ترتيب المشترك الجديد في منطقته — يظهر في آخرها.
+    None إذا لم يُرتَّب أحد في هذه المنطقة بعد (يبقى بترتيب الإضافة)"""
+    last = await db.customers.find(
+        {"area": area, "sort_order": {"$ne": None}}
+    ).sort('sort_order', -1).limit(1).to_list(1)
+    return last[0]['sort_order'] + 1 if last else None
+
+async def place_in_area(customer_oid: ObjectId, area: str, position: Optional[int] = None) -> int:
+    """يضع المشترك في الترتيب المطلوب داخل المنطقة (أو في آخرها) ويعيد ترقيم المنطقة كلها 1..N"""
+    area_customers = await db.customers.find({"area": area}).to_list(None)
+    area_customers.sort(key=customer_sort_key)
+    ids = [c['_id'] for c in area_customers if c['_id'] != customer_oid]
+    if position is None:
+        position = len(ids) + 1
+    if not 1 <= position <= len(ids) + 1:
+        raise HTTPException(status_code=400, detail=f"الترتيب يجب أن يكون بين 1 و {len(ids) + 1}")
+    ids.insert(position - 1, customer_oid)
+
+    # Number the whole area so every customer in it has an explicit place
+    current = {c['_id']: c.get('sort_order') for c in area_customers}
+    changes = [
+        UpdateOne({"_id": cid}, {"$set": {"sort_order": i}})
+        for i, cid in enumerate(ids, 1) if current.get(cid) != i
+    ]
+    if changes:
+        await db.customers.bulk_write(changes)
+    return position
+
 @api_router.post("/customers", response_model=Customer)
 async def create_customer(customer: CustomerCreate):
     customer_dict = customer.dict()
+    customer_dict['sort_order'] = await next_sort_order(customer.area)
     customer_dict['current_balance'] = customer.previous_balance
     customer_dict['is_suspended'] = False
     customer_dict['suspended_at'] = None
@@ -322,6 +372,7 @@ async def get_customers(
         ]
     
     customers = await db.customers.find(query).to_list(1000)
+    customers.sort(key=customer_sort_key)
     return [Customer(**str_id(c)) for c in customers]
 
 @api_router.get("/customers/{customer_id}", response_model=Customer)
@@ -345,6 +396,10 @@ async def update_customer(customer_id: str, customer: CustomerCreate):
         {"$set": customer_dict}
     )
 
+    # Moving to another area puts the customer at the end of that area
+    if customer.area != existing.get('area'):
+        await place_in_area(existing['_id'], customer.area)
+
     # A deliberate change to previous_balance is treated as the owner
     # correcting this customer's balance, so apply it to current_balance
     # right away regardless of invoice history. Leaving the field untouched
@@ -360,6 +415,16 @@ async def update_customer(customer_id: str, customer: CustomerCreate):
 
     updated = await db.customers.find_one({"_id": ObjectId(customer_id)})
     return Customer(**str_id(updated))
+
+@api_router.put("/customers/{customer_id}/position")
+async def set_customer_position(customer_id: str, body: CustomerPosition):
+    """نقل المشترك إلى ترتيب معيّن داخل منطقته — من كان في هذا الترتيب وما بعده ينزل واحداً"""
+    customer = await db.customers.find_one({"_id": ObjectId(customer_id)})
+    if not customer:
+        raise HTTPException(status_code=404, detail="المشترك غير موجود")
+
+    position = await place_in_area(customer['_id'], customer['area'], body.position)
+    return {"message": "تم تغيير الترتيب بنجاح", "position": position}
 
 @api_router.put("/customers/{customer_id}/suspend")
 async def suspend_customer(customer_id: str):

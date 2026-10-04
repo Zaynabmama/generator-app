@@ -40,6 +40,12 @@ export default function EditCustomerScreen() {
     notes: '',
   });
 
+  // Position within the area, as numbered on the customers list
+  const [position, setPosition] = useState('');
+  const [originalPosition, setOriginalPosition] = useState<number | null>(null);
+  const [originalArea, setOriginalArea] = useState('');
+  const [areaCount, setAreaCount] = useState(0);
+
   const areas = ['المسعودية', 'الشرقي', 'الحيصة', 'الغربي'];
 
   useEffect(() => {
@@ -48,14 +54,26 @@ export default function EditCustomerScreen() {
 
   const fetchData = async () => {
     try {
-      const [customerRes, generatorsRes] = await Promise.all([
+      const [customerRes, generatorsRes, customersRes] = await Promise.all([
         customersAPI.getOne(id!),
         generatorsAPI.getAll(),
+        customersAPI.getAll(),
       ]);
 
       setGenerators(generatorsRes.data);
 
       const c = customerRes.data;
+      // The list comes back in the app's order, so the customer's place among
+      // the others in the same area is their number.
+      const areaIds = customersRes.data
+        .filter((other: any) => other.area === c.area)
+        .map((other: any) => other.id);
+      const currentPosition = areaIds.indexOf(c.id) + 1;
+      setOriginalArea(c.area);
+      setAreaCount(areaIds.length);
+      setOriginalPosition(currentPosition);
+      setPosition(String(currentPosition));
+
       setFormData({
         name: c.name || '',
         phone: c.phone || '',
@@ -85,6 +103,15 @@ export default function EditCustomerScreen() {
       return;
     }
 
+    // Changing area puts the customer at the end of the new area, so the
+    // position box only applies while the area stays the same.
+    const areaUnchanged = formData.area === originalArea;
+    const newPosition = parseInt(position, 10);
+    if (areaUnchanged && !(newPosition >= 1 && newPosition <= areaCount)) {
+      showAlert('خطأ', `الترتيب يجب أن يكون بين 1 و ${areaCount}`);
+      return;
+    }
+
     setSaving(true);
     try {
       const data = {
@@ -94,6 +121,9 @@ export default function EditCustomerScreen() {
       };
 
       await customersAPI.update(id!, data);
+      if (areaUnchanged && newPosition !== originalPosition) {
+        await customersAPI.setPosition(id!, newPosition);
+      }
       showAlert('نجاح', 'تم تحديث بيانات المشترك بنجاح');
       router.back();
     } catch (error: any) {
@@ -174,6 +204,22 @@ export default function EditCustomerScreen() {
                 buttons={areas.map((area) => ({ value: area, label: area }))}
                 style={styles.segmented}
               />
+
+              {formData.area === originalArea ? (
+                <TextInput
+                  label={`الترتيب في المنطقة (من 1 إلى ${areaCount})`}
+                  value={position}
+                  onChangeText={(text) => setPosition(sanitizeDigits(text))}
+                  mode="outlined"
+                  keyboardType="numeric"
+                  style={styles.input}
+                  testID="edit-position"
+                />
+              ) : (
+                <Text style={styles.positionNote}>
+                  سيظهر في آخر منطقة {formData.area}، ويمكنك تغيير ترتيبه بعد الحفظ
+                </Text>
+              )}
 
               <TextInput
                 label="رقم العداد *"
@@ -316,6 +362,11 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   segmented: {
+    marginBottom: 16,
+  },
+  positionNote: {
+    fontSize: 13,
+    color: '#FF9800',
     marginBottom: 16,
   },
   pickerContainer: {

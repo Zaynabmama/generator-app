@@ -25,6 +25,7 @@ import { customersAPI, generatorsAPI, invoicesAPI } from '@/src/services/api';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { showAlert } from '@/src/utils/alert';
 import { sanitizeDecimal } from '@/src/utils/numeric-input';
+import { syncAmountWithDiscount, validatePayment } from '@/src/utils/payment-discount';
 
 export default function CustomersScreen() {
   const router = useRouter();
@@ -39,6 +40,7 @@ export default function CustomersScreen() {
   const [paymentDialogVisible, setPaymentDialogVisible] = useState(false);
   const [customerForPayment, setCustomerForPayment] = useState<any>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentDiscount, setPaymentDiscount] = useState('');
   const [payingLoading, setPayingLoading] = useState(false);
 
   const areas = ['المسعودية', 'الشرقي', 'الحيصة', 'الغربي'];
@@ -83,6 +85,20 @@ export default function CustomersScreen() {
     });
   }, [customers, searchQuery, selectedArea]);
 
+  // Each customer's number within their area. The server already lists
+  // customers area by area in the owner's chosen order, so this is just a
+  // running count per area — taken over the full list so searching or
+  // filtering doesn't renumber anyone.
+  const positionById = useMemo(() => {
+    const countByArea: Record<string, number> = {};
+    const positions: Record<string, number> = {};
+    for (const c of customers) {
+      countByArea[c.area] = (countByArea[c.area] || 0) + 1;
+      positions[c.id] = countByArea[c.area];
+    }
+    return positions;
+  }, [customers]);
+
   const getGeneratorName = (generatorId: string) => {
     const generator = generators.find((g) => g.id === generatorId);
     return generator?.name || 'غير محدد';
@@ -123,14 +139,23 @@ export default function CustomersScreen() {
     setMenuVisible(null);
     setCustomerForPayment(customer);
     setPaymentAmount(customer.current_balance > 0 ? customer.current_balance.toString() : '');
+    setPaymentDiscount('');
     setPaymentDialogVisible(true);
+  };
+
+  const handleDiscountChange = (text: string) => {
+    const discount = sanitizeDecimal(text);
+    setPaymentAmount(
+      syncAmountWithDiscount(customerForPayment.current_balance, paymentAmount, paymentDiscount, discount)
+    );
+    setPaymentDiscount(discount);
   };
 
   const submitCustomerPayment = async () => {
     if (!customerForPayment) return;
-    const amount = parseFloat(paymentAmount);
-    if (!paymentAmount || isNaN(amount) || amount <= 0) {
-      showAlert('خطأ', 'الرجاء إدخال مبلغ صحيح');
+    const error = validatePayment(customerForPayment.current_balance, paymentAmount, paymentDiscount);
+    if (error) {
+      showAlert('خطأ', error);
       return;
     }
 
@@ -147,7 +172,8 @@ export default function CustomersScreen() {
       }
 
       await invoicesAPI.addPayment(oldestInvoice.id, {
-        amount,
+        amount: parseFloat(paymentAmount) || 0,
+        discount: parseFloat(paymentDiscount) || 0,
         payment_date: new Date().toISOString(),
         notes: 'دفعة عامة من صفحة المشتركين',
       });
@@ -180,6 +206,7 @@ export default function CustomersScreen() {
         <View style={styles.cardHeader}>
           <View style={styles.customerInfo}>
             <View style={styles.nameRow}>
+              <Text style={styles.positionNumber}>{positionById[item.id]}</Text>
               <Text style={styles.customerName}>{item.name}</Text>
               {item.is_suspended && (
                 <Chip
@@ -389,6 +416,15 @@ export default function CustomersScreen() {
               mode="outlined"
               style={{ marginTop: 12 }}
             />
+            <PaperInput
+              label="حسم (اختياري)"
+              value={paymentDiscount}
+              onChangeText={handleDiscountChange}
+              keyboardType="numeric"
+              mode="outlined"
+              style={{ marginTop: 12 }}
+              testID="payment-discount-input"
+            />
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setPaymentDialogVisible(false)}>إلغاء</Button>
@@ -439,6 +475,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    marginBottom: 4,
+  },
+  positionNumber: {
+    fontSize: 14,
+    color: '#4CAF50',
+    fontWeight: 'bold',
+    backgroundColor: 'rgba(76, 175, 80, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
     marginBottom: 4,
   },
   suspendedChip: {

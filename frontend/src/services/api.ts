@@ -50,6 +50,8 @@ export const customersAPI = {
   update: (id: string, data: any) => api.put(`/customers/${id}`, data),
   delete: (id: string) => api.delete(`/customers/${id}`),
   suspend: (id: string) => api.put(`/customers/${id}/suspend`, {}),
+  setPosition: (id: string, position: number) =>
+    api.put(`/customers/${id}/position`, { position }),
 };
 
 // Generators

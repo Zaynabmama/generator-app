@@ -2546,3 +2546,86 @@ class TestCustomerEditPUT:
             assert got_rd["consumption"] == 100.0
         finally:
             api_client.delete(f"{API}/customers/{cid}")
+
+
+# ==================== Customer order (area by area, then position) ====================
+
+class TestCustomerOrder:
+    """GET /api/customers lists area by area (الحيصة، المسعودية، الشرقي، الغربي),
+    then by each customer's position in the area. PUT /customers/{id}/position
+    moves a customer; the one already there moves down one.
+
+    Everything that writes uses a throwaway TEST area, so running this against
+    a server with real data never renumbers real customers."""
+
+    AREA_ORDER = ["الحيصة", "المسعودية", "الشرقي", "الغربي"]
+
+    def _create(self, api_client, area, name=None):
+        r = api_client.post(f"{API}/customers", json={
+            "name": name or f"TEST_{uuid.uuid4().hex[:6]}",
+            "phone": "07711111111",
+            "area": area,
+            "meter_number": f"TEST-{uuid.uuid4().hex[:6]}",
+        })
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def _area_ids(self, api_client, area):
+        return [c["id"] for c in api_client.get(f"{API}/customers").json() if c["area"] == area]
+
+    def test_list_is_grouped_by_area_in_order(self, api_client):
+        customers = api_client.get(f"{API}/customers").json()
+        ranks = [self.AREA_ORDER.index(c["area"]) if c["area"] in self.AREA_ORDER
+                 else len(self.AREA_ORDER) for c in customers]
+        assert ranks == sorted(ranks), "customers are not grouped by area in AREA_ORDER"
+
+    def test_move_and_new_customer_ordering(self, api_client):
+        area = f"TEST_AREA_{uuid.uuid4().hex[:6]}"
+        made = [self._create(api_client, area) for _ in range(4)]
+        a, b, c, d = (x["id"] for x in made)
+        try:
+            # Untouched area keeps the order customers were added
+            assert self._area_ids(api_client, area) == [a, b, c, d]
+
+            # Move d to 2 -> b, c shift down
+            r = api_client.put(f"{API}/customers/{d}/position", json={"position": 2})
+            assert r.status_code == 200, r.text
+            assert self._area_ids(api_client, area) == [a, d, b, c]
+
+            # Move a to the end
+            r = api_client.put(f"{API}/customers/{a}/position", json={"position": 4})
+            assert r.status_code == 200, r.text
+            assert self._area_ids(api_client, area) == [d, b, c, a]
+
+            # Out of range -> 400, order unchanged
+            for bad in (0, 6):
+                r = api_client.put(f"{API}/customers/{b}/position", json={"position": bad})
+                assert r.status_code == 400, r.text
+            assert self._area_ids(api_client, area) == [d, b, c, a]
+
+            # A new customer joins the end of the area
+            e = self._create(api_client, area)
+            made.append(e)
+            assert self._area_ids(api_client, area) == [d, b, c, a, e["id"]]
+        finally:
+            for x in made:
+                api_client.delete(f"{API}/customers/{x['id']}")
+
+    def test_area_change_moves_to_end_of_new_area(self, api_client):
+        area1 = f"TEST_AREA_{uuid.uuid4().hex[:6]}"
+        area2 = f"TEST_AREA_{uuid.uuid4().hex[:6]}"
+        x = self._create(api_client, area1)
+        y = self._create(api_client, area2)
+        z = self._create(api_client, area2)
+        try:
+            # Number area2 by moving z first, then move x into it
+            api_client.put(f"{API}/customers/{z['id']}/position", json={"position": 1})
+            body = {k: x[k] for k in ("name", "phone", "address", "area", "meter_number",
+                                      "generator_id", "previous_balance", "kwh_rate", "notes")}
+            body["area"] = area2
+            r = api_client.put(f"{API}/customers/{x['id']}", json=body)
+            assert r.status_code == 200, r.text
+            assert self._area_ids(api_client, area2) == [z["id"], y["id"], x["id"]]
+        finally:
+            for c in (x, y, z):
+                api_client.delete(f"{API}/customers/{c['id']}")

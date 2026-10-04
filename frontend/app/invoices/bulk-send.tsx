@@ -28,8 +28,14 @@ export default function BulkSendScreen() {
         paymentsAPI.getAll(),
       ]);
 
+      // The server lists customers in the app's order (area by area, then the
+      // owner's chosen order), so the queue follows that same order.
       const customersById: Record<string, any> = {};
-      customersRes.data.forEach((c: any) => (customersById[c.id] = c));
+      const customerRank: Record<string, number> = {};
+      customersRes.data.forEach((c: any, i: number) => {
+        customersById[c.id] = c;
+        customerRank[c.id] = i;
+      });
 
       const readingsById: Record<string, any> = {};
       readingsRes.data.forEach((r: any) => (readingsById[r.id] = r));
@@ -50,11 +56,7 @@ export default function BulkSendScreen() {
         }))
         .filter((item: QueueItem) => item.customer && item.reading);
 
-      items.sort((a, b) => {
-        const areaCompare = (a.customer.area || '').localeCompare(b.customer.area || '');
-        if (areaCompare !== 0) return areaCompare;
-        return (a.customer.name || '').localeCompare(b.customer.name || '');
-      });
+      items.sort((a, b) => customerRank[a.customer.id] - customerRank[b.customer.id]);
 
       setQueue(items);
       setSentIds(new Set());
