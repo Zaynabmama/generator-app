@@ -31,9 +31,13 @@ export function buildInvoiceMessage(customer: any, invoice: any, reading: any, p
   const paymentsSection =
     payments.length > 0
       ? `\nسجل الدفعات:\n${payments
-          .map((p) => `- ${formatPaymentDate(p.payment_date)}: $${p.amount.toFixed(2)}`)
+          .map((p) => {
+            const discount = p.discount > 0 ? ` (حسم $${p.discount.toFixed(2)})` : '';
+            return `- ${formatPaymentDate(p.payment_date)}: $${p.amount.toFixed(2)}${discount}`;
+          })
           .join('\n')}\n`
       : '';
+  const discountLine = invoice.discount > 0 ? `\nحسم: $${invoice.discount.toFixed(2)}` : '';
 
   return `*${BUSINESS_INFO.name}*
 اشتراك ${customer.area}
@@ -54,7 +58,7 @@ ${BUSINESS_INFO.phones}
 المبلغ المتوجب: $${invoice.total_amount.toFixed(2)}
 الرصيد السابق: $${invoice.previous_balance.toFixed(2)}
 *المجموع: $${totalDue.toFixed(2)}*
-واصل: $${invoice.amount_paid.toFixed(2)}
+واصل: $${invoice.amount_paid.toFixed(2)}${discountLine}
 *الباقي: $${invoice.remaining_amount.toFixed(2)}*
 ${paymentsSection}
 تدفع في المحل من 1 لغاية 5 الشهر`;

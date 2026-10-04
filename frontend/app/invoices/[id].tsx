@@ -24,6 +24,7 @@ import { invoicesAPI, customersAPI, readingsAPI, generatorsAPI, paymentsAPI } fr
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { showAlert } from '@/src/utils/alert';
 import { sanitizeDecimal } from '@/src/utils/numeric-input';
+import { amountAfterDiscount, syncAmountWithDiscount, validatePayment } from '@/src/utils/payment-discount';
 import { BUSINESS_INFO, buildInvoiceWhatsAppWebUrl, formatPhoneForWhatsApp, buildInvoiceMessage } from '@/src/utils/whatsapp-invoice';
 
 export default function InvoiceDetailScreen() {
@@ -39,6 +40,7 @@ export default function InvoiceDetailScreen() {
   const [payments, setPayments] = useState<any[]>([]);
   const [paymentDialogVisible, setPaymentDialogVisible] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentDiscount, setPaymentDiscount] = useState('');
   const [autoSendTriggered, setAutoSendTriggered] = useState(false);
   const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
 
@@ -328,6 +330,11 @@ export default function InvoiceDetailScreen() {
                 <div class="cell-label" style="border-right: 2px solid #000;">في:</div>
                 <div class="cell-value receipt-date">${formattedReceiptDate}</div>
               </div>
+              ${invoice.discount > 0 ? `
+              <div class="row">
+                <div class="cell-label">حسم:</div>
+                <div class="cell-value">$${invoice.discount.toFixed(2)}</div>
+              </div>` : ''}
               <div class="row">
                 <div class="cell-label">باقي:</div>
                 <div class="cell-value">$${invoice.remaining_amount.toFixed(2)}</div>
@@ -458,20 +465,31 @@ export default function InvoiceDetailScreen() {
   };
 
   const handlePayment = () => {
-    setPaymentAmount(invoice.remaining_amount.toString());
+    setPaymentAmount(amountAfterDiscount(invoice.remaining_amount, ''));
+    setPaymentDiscount('');
     setPaymentDialogVisible(true);
   };
 
+  const handleDiscountChange = (text: string) => {
+    const discount = sanitizeDecimal(text);
+    setPaymentAmount(
+      syncAmountWithDiscount(invoice.remaining_amount, paymentAmount, paymentDiscount, discount)
+    );
+    setPaymentDiscount(discount);
+  };
+
   const submitPayment = async () => {
-    if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
-      showAlert('خطأ', 'الرجاء إدخال مبلغ صحيح');
+    const error = validatePayment(invoice.remaining_amount, paymentAmount, paymentDiscount);
+    if (error) {
+      showAlert('خطأ', error);
       return;
     }
 
     try {
       setSending(true);
       await invoicesAPI.addPayment(invoice.id, {
-        amount: parseFloat(paymentAmount),
+        amount: parseFloat(paymentAmount) || 0,
+        discount: parseFloat(paymentDiscount) || 0,
         payment_date: new Date().toISOString(),
         notes: '',
       });
@@ -479,6 +497,7 @@ export default function InvoiceDetailScreen() {
       showAlert('نجاح', 'تم تسجيل الدفعة بنجاح');
       setPaymentDialogVisible(false);
       setPaymentAmount('');
+      setPaymentDiscount('');
       await fetchData();
     } catch (error: any) {
       showAlert('خطأ', error.response?.data?.detail || 'حدث خطأ أثناء تسجيل الدفعة');
@@ -663,6 +682,15 @@ export default function InvoiceDetailScreen() {
               </Text>
             </View>
 
+            {invoice.discount > 0 && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>حسم:</Text>
+                <Text style={[styles.detailValue, { color: '#FF9800' }]}>
+                  ${invoice.discount.toFixed(2)}
+                </Text>
+              </View>
+            )}
+
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>الباقي:</Text>
               <Text style={[styles.detailValue, styles.remaining]}>
@@ -683,6 +711,11 @@ export default function InvoiceDetailScreen() {
                   </Text>
                   <Text style={[styles.detailValue, { color: '#4CAF50' }]}>
                     ${payment.amount.toFixed(2)}
+                    {payment.discount > 0 && (
+                      <Text style={{ color: '#FF9800' }}>
+                        {`  (حسم $${payment.discount.toFixed(2)})`}
+                      </Text>
+                    )}
                   </Text>
                 </View>
               ))}
@@ -781,6 +814,15 @@ export default function InvoiceDetailScreen() {
               keyboardType="numeric"
               mode="outlined"
               style={styles.dialogInput}
+            />
+            <PaperInput
+              label="حسم (اختياري)"
+              value={paymentDiscount}
+              onChangeText={handleDiscountChange}
+              keyboardType="numeric"
+              mode="outlined"
+              style={styles.dialogInput}
+              testID="payment-discount-input"
             />
           </Dialog.Content>
           <Dialog.Actions>

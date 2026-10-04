@@ -24,6 +24,7 @@ import { invoicesAPI, customersAPI } from '@/src/services/api';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { showAlert } from '@/src/utils/alert';
 import { sanitizeDecimal } from '@/src/utils/numeric-input';
+import { amountAfterDiscount, syncAmountWithDiscount, validatePayment } from '@/src/utils/payment-discount';
 
 export default function InvoicesScreen() {
   const router = useRouter();
@@ -38,6 +39,7 @@ export default function InvoicesScreen() {
   const [paymentDialogVisible, setPaymentDialogVisible] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentDiscount, setPaymentDiscount] = useState('');
   const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
   const [invoiceToDelete, setInvoiceToDelete] = useState<any>(null);
 
@@ -143,19 +145,30 @@ export default function InvoicesScreen() {
 
   const handlePayment = (invoice: any) => {
     setSelectedInvoice(invoice);
-    setPaymentAmount(invoice.remaining_amount.toString());
+    setPaymentAmount(amountAfterDiscount(invoice.remaining_amount, ''));
+    setPaymentDiscount('');
     setPaymentDialogVisible(true);
   };
 
+  const handleDiscountChange = (text: string) => {
+    const discount = sanitizeDecimal(text);
+    setPaymentAmount(
+      syncAmountWithDiscount(selectedInvoice.remaining_amount, paymentAmount, paymentDiscount, discount)
+    );
+    setPaymentDiscount(discount);
+  };
+
   const submitPayment = async () => {
-    if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
-      showAlert('خطأ', 'الرجاء إدخال مبلغ صحيح');
+    const error = validatePayment(selectedInvoice.remaining_amount, paymentAmount, paymentDiscount);
+    if (error) {
+      showAlert('خطأ', error);
       return;
     }
 
     try {
       await invoicesAPI.addPayment(selectedInvoice.id, {
-        amount: parseFloat(paymentAmount),
+        amount: parseFloat(paymentAmount) || 0,
+        discount: parseFloat(paymentDiscount) || 0,
         payment_date: new Date().toISOString(),
         notes: '',
       });
@@ -245,6 +258,15 @@ export default function InvoicesScreen() {
               ${item.amount_paid.toFixed(2)}
             </Text>
           </View>
+
+          {item.discount > 0 && (
+            <View style={styles.amountRow}>
+              <Text style={styles.label}>الحسم:</Text>
+              <Text style={[styles.amount, { color: '#FF9800' }]}>
+                ${item.discount.toFixed(2)}
+              </Text>
+            </View>
+          )}
 
           {item.remaining_amount > 0 && (
             <View style={styles.amountRow}>
@@ -385,6 +407,15 @@ export default function InvoicesScreen() {
                   keyboardType="numeric"
                   mode="outlined"
                   style={styles.input}
+                />
+                <PaperInput
+                  label="حسم (اختياري)"
+                  value={paymentDiscount}
+                  onChangeText={handleDiscountChange}
+                  keyboardType="numeric"
+                  mode="outlined"
+                  style={styles.input}
+                  testID="payment-discount-input"
                 />
               </>
             )}

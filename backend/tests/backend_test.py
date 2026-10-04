@@ -670,6 +670,82 @@ class TestMonthlyFeeAndPayment:
         finally:
             api_client.delete(f"{API}/customers/{cust_id}")
 
+    def test_payment_with_discount_settles_invoice(self, api_client):
+        """total=90, pay 80 + discount 10 -> paid, discount kept out of amount_paid."""
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        cust_id = self._create_customer(api_client, gen_id)
+        try:
+            reading_id = self._create_reading(api_client, cust_id)
+            inv = self._create_invoice(api_client, cust_id, reading_id)
+            pr = api_client.post(
+                f"{API}/invoices/{inv['id']}/payment",
+                json={"amount": 80.0, "discount": 10.0},
+            )
+            assert pr.status_code == 200, pr.text
+            assert pr.json()["new_remaining"] == 0.0
+
+            gi = api_client.get(f"{API}/invoices/{inv['id']}").json()
+            assert gi["amount_paid"] == 80.0
+            assert gi["discount"] == 10.0
+            assert gi["remaining_amount"] == 0.0
+            assert gi["status"] == "paid"
+
+            pays = api_client.get(f"{API}/payments", params={"invoice_id": inv["id"]}).json()
+            assert len(pays) == 1
+            assert pays[0]["amount"] == 80.0
+            assert pays[0]["discount"] == 10.0
+
+            cust = api_client.get(f"{API}/customers/{cust_id}").json()
+            assert cust["current_balance"] == 0.0
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    def test_discount_only_is_partial(self, api_client):
+        """total=90, discount 10 with no payment -> remaining=80, status=partial."""
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        cust_id = self._create_customer(api_client, gen_id)
+        try:
+            reading_id = self._create_reading(api_client, cust_id)
+            inv = self._create_invoice(api_client, cust_id, reading_id)
+            pr = api_client.post(
+                f"{API}/invoices/{inv['id']}/payment",
+                json={"amount": 0.0, "discount": 10.0},
+            )
+            assert pr.status_code == 200, pr.text
+
+            gi = api_client.get(f"{API}/invoices/{inv['id']}").json()
+            assert gi["amount_paid"] == 0.0
+            assert gi["discount"] == 10.0
+            assert gi["remaining_amount"] == 80.0
+            assert gi["status"] == "partial"
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
+    def test_invalid_discount_rejected(self, api_client):
+        """Discount larger than remaining, negative values, and empty payments -> 400."""
+        gens = api_client.get(f"{API}/generators").json()
+        gen_id = gens[0]["id"]
+        cust_id = self._create_customer(api_client, gen_id)
+        try:
+            reading_id = self._create_reading(api_client, cust_id)
+            inv = self._create_invoice(api_client, cust_id, reading_id)
+            url = f"{API}/invoices/{inv['id']}/payment"
+            for body in (
+                {"amount": 0.0, "discount": 100.0},
+                {"amount": 10.0, "discount": -5.0},
+                {"amount": 0.0, "discount": 0.0},
+            ):
+                r = api_client.post(url, json=body)
+                assert r.status_code == 400, f"{body}: {r.status_code} {r.text}"
+
+            gi = api_client.get(f"{API}/invoices/{inv['id']}").json()
+            assert gi["remaining_amount"] == 90.0
+            assert gi["status"] == "unpaid"
+        finally:
+            api_client.delete(f"{API}/customers/{cust_id}")
+
     def test_payment_on_nonexistent_invoice_returns_404(self, api_client):
         # Well-formed but non-existent ObjectId
         fake = "507f1f77bcf86cd799439011"

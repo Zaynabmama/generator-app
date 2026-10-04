@@ -200,6 +200,7 @@ class Invoice(BaseModel):
     total_amount: float
     previous_balance: float = 0.0
     amount_paid: float = 0.0
+    discount: float = 0.0  # مجموع الحسومات
     remaining_amount: float = 0.0
     status: str = "unpaid"
     due_date: datetime
@@ -225,7 +226,8 @@ class Expense(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class PaymentCreate(BaseModel):
-    amount: float
+    amount: float = 0.0
+    discount: float = 0.0  # الحسم
     payment_date: datetime = Field(default_factory=datetime.utcnow)
     notes: str = ""
 
@@ -234,6 +236,7 @@ class Payment(BaseModel):
     invoice_id: str
     customer_id: str
     amount: float
+    discount: float = 0.0
     payment_date: datetime
     notes: str = ""
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -682,24 +685,34 @@ async def get_invoice(invoice_id: str):
 async def add_payment(invoice_id: str, payment: PaymentCreate):
     invoice = await db.invoices.find_one({"_id": ObjectId(invoice_id)})
     if not invoice:
-        raise HTTPException(status_code=404, detail="الفاتورة غير موجودة")    
-    # Update invoice with new payment
+        raise HTTPException(status_code=404, detail="الفاتورة غير موجودة")
+    if payment.amount < 0 or payment.discount < 0:
+        raise HTTPException(status_code=400, detail="لا يمكن أن يكون المبلغ أو الحسم سالباً")
+    if payment.amount == 0 and payment.discount == 0:
+        raise HTTPException(status_code=400, detail="الرجاء إدخال مبلغ أو حسم")
+    if round(payment.discount, 2) > round(invoice['remaining_amount'], 2):
+        raise HTTPException(status_code=400, detail="الحسم أكبر من المبلغ المتبقي")
+
+    # Update invoice with new payment. The discount is kept apart from
+    # amount_paid so it reduces what's owed without counting as revenue.
     new_amount_paid = invoice['amount_paid'] + payment.amount
+    new_discount = invoice.get('discount', 0.0) + payment.discount
     total_with_previous = invoice['total_amount'] + invoice['previous_balance']
-    new_remaining = total_with_previous - new_amount_paid
-    
+    new_remaining = round(total_with_previous - new_amount_paid - new_discount, 2)
+
     # Determine new status
-    if new_amount_paid >= total_with_previous:
+    if new_remaining <= 0:
         new_status = 'paid'
-    elif new_amount_paid > 0:
+    elif new_amount_paid > 0 or new_discount > 0:
         new_status = 'partial'
     else:
         new_status = 'unpaid'
-    
+
     await db.invoices.update_one(
         {"_id": ObjectId(invoice_id)},
         {"$set": {
             "amount_paid": new_amount_paid,
+            "discount": new_discount,
             "remaining_amount": new_remaining,
             "status": new_status,
             "updated_at": datetime.utcnow()
